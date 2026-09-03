@@ -1,6 +1,10 @@
 name: KingdomEvent
 version: '${version}'
-
-main: com.liphium.kingdom.KingdomEvent
+main: com.liphium.snowsplash.Snowsplash
 api-version: '26.2'
-load: POSTWORLD
+
+commands:
+  set:
+    description: "Set a location."
+  timer:
+    description: "Configure the timer."
