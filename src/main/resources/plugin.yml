@@ -1,0 +1,6 @@
+name: KingdomEvent
+version: '${version}'
+
+main: com.liphium.kingdom.KingdomEvent
+api-version: '26.2'
+load: POSTWORLD
