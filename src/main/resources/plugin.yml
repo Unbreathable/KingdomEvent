@@ -1,6 +1,6 @@
 name: KingdomEvent
 version: '${version}'
-main: com.liphium.snowsplash.Snowsplash
+main: com.liphium.kingdom.Kingdom
 api-version: '26.2'
 
 commands:

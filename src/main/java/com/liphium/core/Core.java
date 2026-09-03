@@ -2,7 +2,7 @@ package com.liphium.core;
 
 import com.liphium.core.inventory.Screens;
 import com.liphium.core.listener.InventoryListener;
-import com.liphium.snowsplash.Snowsplash;
+import com.liphium.kingdom.Kingdom;
 import org.bukkit.event.Listener;
 
 import java.util.Arrays;
@@ -22,7 +22,7 @@ public class Core {
 
         System.out.println("Initializing listeners..");
         Listener[] listeners = new Listener[]{new InventoryListener()};
-        Arrays.stream(listeners).forEach(listener -> Snowsplash.getInstance().getServer().getPluginManager().registerEvents(listener, Snowsplash.getInstance()));
+        Arrays.stream(listeners).forEach(listener -> Kingdom.getInstance().getServer().getPluginManager().registerEvents(listener, Kingdom.getInstance()));
 
         System.out.println(" ");
     }

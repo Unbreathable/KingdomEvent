@@ -1,0 +1,35 @@
+package com.liphium.kingdom.command;
+
+import com.liphium.core.Core;
+import com.liphium.kingdom.Kingdom;
+import com.liphium.kingdom.util.LocationAPI;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+
+public class SetCommand implements CommandExecutor {
+
+    @Override
+    public boolean onCommand(CommandSender cs, Command cmd, String label, String[] args) {
+        if (cs instanceof Player player && player.hasPermission("set")) {
+            if (args.length == 0) {
+                player.sendMessage(Component.text("/set <name> ", NamedTextColor.AQUA).append(Component.text("-> ", NamedTextColor.DARK_GRAY)).append(Component.text("Set a position.", NamedTextColor.GRAY)));
+            } else {
+                if (args[0].equals("item")) {
+                    Core.getInstance().getScreens().open(player, 3);
+                    return true;
+                }
+
+                LocationAPI.setLocation(args[0], player.getLocation());
+                player.sendMessage(Kingdom.PREFIX.append(Component.text("Position", NamedTextColor.AQUA).appendSpace().append(Component.text("set.", NamedTextColor.GRAY))));
+            }
+        } else {
+            cs.sendMessage(Component.text("No permission!", NamedTextColor.RED));
+        }
+
+        return false;
+    }
+}
