@@ -5,6 +5,11 @@ import com.liphium.core.inventory.CItem;
 import com.liphium.core.inventory.CScreen;
 import com.liphium.core.util.ItemStackBuilder;
 import com.liphium.kingdom.Kingdom;
+import com.liphium.kingdom.game.state.IngameState;
+import com.liphium.kingdom.game.team.Team;
+import io.papermc.paper.datacomponent.DataComponentType;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.UseCooldown;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -13,11 +18,15 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.components.UseCooldownComponent;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.List;
 import java.util.Map;
 
 public class ItemShopScreen extends CScreen {
+
+    public static final Material CURRENCY = Material.GOLD_NUGGET;
 
     public ItemShopScreen() {
         super(3, Component.text("Item shop", NamedTextColor.DARK_AQUA, TextDecoration.BOLD), 4, false);
@@ -37,10 +46,41 @@ public class ItemShopScreen extends CScreen {
         for (int i = 0; i < 9; i++) {
             if (category.getItems().size() <= i) {
                 setItemNotCached(event.player(), 18 + i, ShopCategory.spacer(), inventory);
+            } else if (category == ShopCategory.UPGRADES) {
+                // Build upgrade items dynamically so the price reflects the team's current level
+                setItemNotCached(event.player(), 18 + i, coinDropperUpgradeItem(event.player()), inventory);
             } else {
                 setItemNotCached(event.player(), 18 + i, category.getItems().get(i), inventory);
             }
         }
+    }
+
+    /**
+     * Coin dropper upgrade item with the current level and the price for the next level.
+     */
+    private CItem coinDropperUpgradeItem(Player player) {
+        Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
+        int level = team == null ? 1 : team.getCoinDropperLevel();
+
+        var name = Component.text("Coin dropper upgrade", NamedTextColor.GOLD);
+        var levelLine = Component.text("Current level: ", NamedTextColor.GRAY)
+                .append(Component.text(level, NamedTextColor.GOLD, TextDecoration.BOLD));
+        CItem item;
+        if (level >= 5) {
+            item = new CItem(new ItemStackBuilder(Material.GOLD_NUGGET)
+                    .withName(name)
+                    .withLore(levelLine, Component.text("Fully upgraded!", NamedTextColor.RED))
+                    .buildStack());
+        } else {
+            item = new CItem(new ItemStackBuilder(Material.GOLD_NUGGET)
+                    .withName(name)
+                    .withLore(levelLine,
+                            Component.text("Makes your coin dropper faster.", NamedTextColor.GRAY),
+                            Component.text("Price: ", NamedTextColor.GRAY)
+                                    .append(Component.text(ShopCategory.upgradeCost(level), NamedTextColor.GOLD)))
+                    .buildStack()).onClick(ShopCategory::buyCoinDropperUpgrade);
+        }
+        return item;
     }
 
     public static void removeAmountFromInventory(Player player, Material material, int amount) {
@@ -58,105 +98,131 @@ public class ItemShopScreen extends CScreen {
         }
     }
 
+    public static ItemStack tntBow() {
+        ItemStack stack = new ItemStackBuilder(Material.BOW)
+                .withName(Component.text("TNT Bow", NamedTextColor.RED))
+                .withLore(Component.text("Shoots exploding arrows.", NamedTextColor.GRAY),
+                        Component.text("5 uses only!", NamedTextColor.RED))
+                .buildStack();
+        final var meta = stack.getItemMeta();
+        meta.getPersistentDataContainer().set(Kingdom.TNT_BOW_KEY, PersistentDataType.BYTE, (byte) 1);
+        stack.setItemMeta(meta);
+
+        // Add cooldown meta to make it detected
+        var cooldown = UseCooldown.useCooldown(5).cooldownGroup(IngameState.TNT_BOW_COOLDOWN_KEY).build();
+        stack.setData(DataComponentTypes.USE_COOLDOWN, cooldown);
+
+        stack.setData(DataComponentTypes.MAX_DAMAGE, 5);
+        stack.setData(DataComponentTypes.DAMAGE, 0);
+        return stack;
+    }
+
     public enum ShopCategory {
         WEAPONS(
                 new ItemStackBuilder(Material.IRON_SWORD)
                         .withName(Component.text("Weapons", NamedTextColor.RED, TextDecoration.BOLD))
-                        .withLore(Component.text("Useful weapons.", NamedTextColor.GRAY))
+                        .withLore(Component.text("Better melee weapons.", NamedTextColor.GRAY))
                         .buildStack(),
                 List.of(
-                        itemWithPrice(Material.STONE_SWORD, "Stone sword", NamedTextColor.RED, 4, 1),
                         itemWithPrice(Material.IRON_SWORD, "Iron sword", NamedTextColor.RED, 10, 1),
-                        itemWithPrice(Material.DIAMOND_SWORD, "Diamond sword", NamedTextColor.RED, 20, 1),
                         spacer(),
-                        itemWithPrice(Material.IRON_AXE, "Iron axe", NamedTextColor.RED, 15, 1),
-                        itemWithPrice(Material.DIAMOND_AXE, "Diamond axe", NamedTextColor.RED, 35, 1)
+                        itemWithPrice(Material.IRON_AXE, "Iron axe", NamedTextColor.RED, 15, 1)
                 )
         ),
-        BOWS(
+        RANGED(
                 new ItemStackBuilder(Material.BOW)
-                        .withName(Component.text("Bows", NamedTextColor.RED, TextDecoration.BOLD))
-                        .withLore(Component.text("Bows & utilities.", NamedTextColor.GRAY))
+                        .withName(Component.text("Ranged", NamedTextColor.RED, TextDecoration.BOLD))
+                        .withLore(Component.text("Bows & explosives.", NamedTextColor.GRAY))
                         .buildStack(),
                 List.of(
-                        itemWithPrice(Material.BOW, "Bow", NamedTextColor.RED, 10, 1),
+                        itemWithPrice(Material.CROSSBOW, "Crossbow", NamedTextColor.RED, 15, 1),
                         itemWithPriceCustom(
                                 new ItemStackBuilder(Material.BOW)
-                                        .withName(Component.text("Punch", NamedTextColor.RED))
-                                        .withEnchantments(Map.of(Enchantment.PUNCH, 1))
+                                        .withName(Component.text("Infinity bow", NamedTextColor.RED))
+                                        .withEnchantments(Map.of(Enchantment.INFINITY, 1))
                                         .buildStack(),
-                                15
+                                20
                         ),
                         itemWithPriceCustom(
                                 new ItemStackBuilder(Material.BOW)
-                                        .withName(Component.text("Power", NamedTextColor.RED))
-                                        .withEnchantments(Map.of(Enchantment.POWER, 1))
-                                        .buildStack(),
-                                30
-                        ),
-                        itemWithPriceCustom(
-                                new ItemStackBuilder(Material.BOW)
-                                        .withName(Component.text("Absolute power", NamedTextColor.RED))
+                                        .withName(Component.text("Power bow", NamedTextColor.RED))
                                         .withEnchantments(Map.of(Enchantment.POWER, 2))
                                         .buildStack(),
-                                70
+                                25
                         ),
-                        itemWithPriceCustom(
-                                new ItemStackBuilder(Material.BOW)
-                                        .withName(Component.text("Power & Punch", NamedTextColor.RED))
-                                        .withEnchantments(Map.of(Enchantment.PUNCH, 1, Enchantment.POWER, 1))
-                                        .buildStack(),
-                                40
-                        ),
-                        itemWithPrice(Material.CROSSBOW, "Crossbow", NamedTextColor.RED, 40, 1),
+                        itemWithPriceCustom(tntBow(), 30),
                         spacer(),
-                        itemWithPrice(Material.WIND_CHARGE, "Wind charge", NamedTextColor.RED, 2, 5),
-                        itemWithPrice(Material.ARROW, "Arrow", NamedTextColor.RED, 1, 4)
+                        itemWithPrice(Material.ARROW, "Arrow", NamedTextColor.RED, 1, 4),
+                        itemWithPrice(Material.WIND_CHARGE, "Wind charge", NamedTextColor.RED, 2, 5)
                 )
         ),
-        ARROWS(
+        TRAPS(
                 new ItemStackBuilder(Material.RED_DYE)
-                        .withName(Component.text("Effects", NamedTextColor.GOLD, TextDecoration.BOLD))
+                        .withName(Component.text("Traps", NamedTextColor.GOLD, TextDecoration.BOLD))
                         .withLore(
-                                Component.text("Traps & arrow effects.", NamedTextColor.GRAY),
-                                Component.text("", NamedTextColor.GRAY),
-                                Component.text("Right click on block - Use as trap", NamedTextColor.GRAY),
-                                Component.text("Right click in the air - Use as arrow effect", NamedTextColor.GRAY)
+                                Component.text("Place on blocks to set a trap.", NamedTextColor.GRAY)
                         )
                         .buildStack(),
                 List.of(
-                        itemWithPrice(Material.GRAY_DYE, "Slowness", NamedTextColor.GOLD, 3, 1),
-                        itemWithPrice(Material.LIME_DYE, "Poison", NamedTextColor.GOLD, 4, 1),
-                        itemWithPrice(Material.GUNPOWDER, "Explosion", NamedTextColor.GOLD, 10, 1)
+                        itemWithPrice(Material.GRAY_DYE, "Slowness trap", NamedTextColor.GOLD, 3, 1),
+                        itemWithPrice(Material.LIME_DYE, "Poison trap", NamedTextColor.GOLD, 4, 1),
+                        itemWithPrice(Material.GUNPOWDER, "Explosion trap", NamedTextColor.GOLD, 10, 1),
+                        itemWithPrice(Material.WHITE_DYE, "Web trap", NamedTextColor.GOLD, 5, 1)
                 )
         ),
-        TOOLS(
-                new ItemStackBuilder(Material.IRON_PICKAXE)
-                        .withName(Component.text("Tools", NamedTextColor.AQUA, TextDecoration.BOLD))
-                        .withLore(Component.text("Useful tools.", NamedTextColor.GRAY))
-                        .buildStack(),
-                List.of(
-                        itemWithPrice(Material.IRON_PICKAXE, "Iron pickaxe", NamedTextColor.AQUA, 4, 1),
-                        itemWithPrice(Material.IRON_SHOVEL, "Iron shovel", NamedTextColor.AQUA, 4, 1),
-                        spacer(),
-                        itemWithPrice(Material.DIAMOND_PICKAXE, "Diamond pickaxe", NamedTextColor.AQUA, 8, 1),
-                        itemWithPrice(Material.DIAMOND_SHOVEL, "Diamond shovel", NamedTextColor.AQUA, 8, 1)
-                )
-        ),
-        EXTRA(
+        EXPLOSIVES(
                 new ItemStackBuilder(Material.TNT)
-                        .withName(Component.text("Extra", NamedTextColor.WHITE, TextDecoration.BOLD))
-                        .withLore(Component.text("Blocks, special items, etc.", NamedTextColor.GRAY))
+                        .withName(Component.text("Explosives", NamedTextColor.WHITE, TextDecoration.BOLD))
+                        .withLore(Component.text("Blow things up.", NamedTextColor.GRAY))
                         .buildStack(),
                 List.of(
-                        itemWithPrice(Material.PACKED_ICE, "Ice", NamedTextColor.WHITE, 2, 16),
-                        itemWithPrice(Material.SNOW_BLOCK, "Snow", NamedTextColor.WHITE, 4, 16),
-                        itemWithPrice(Material.SPRUCE_LOG, "Spruce wood", NamedTextColor.WHITE, 8, 4),
-                        itemWithPrice(Material.COBBLESTONE, "Cobblestone", NamedTextColor.WHITE, 8, 16),
-                        spacer(),
-                        itemWithPrice(Material.SPRUCE_BOAT, "Boat", NamedTextColor.WHITE, 4, 1),
                         itemWithPrice(Material.TNT, "TNT", NamedTextColor.WHITE, 8, 1),
-                        itemWithPrice(Material.GOLDEN_APPLE, "Golden apple", NamedTextColor.WHITE, 3, 1)
+                        itemWithPrice(Material.FIRE_CHARGE, "Fire charge", NamedTextColor.WHITE, 12, 1)
+                )
+        ),
+        BLOCKS(
+                new ItemStackBuilder(Material.COBBLESTONE)
+                        .withName(Component.text("Blocks", NamedTextColor.WHITE, TextDecoration.BOLD))
+                        .withLore(Component.text("For building.", NamedTextColor.GRAY))
+                        .buildStack(),
+                List.of(
+                        itemWithPrice(Material.COBBLESTONE, "Cobblestone", NamedTextColor.WHITE, 4, 16),
+                        itemWithPrice(Material.OAK_PLANKS, "Oak planks", NamedTextColor.WHITE, 4, 16),
+                        itemWithPrice(Material.OAK_LOG, "Oak wood", NamedTextColor.WHITE, 6, 8)
+                )
+        ),
+        ORES(
+                new ItemStackBuilder(Material.IRON_ORE)
+                        .withName(Component.text("Ores", NamedTextColor.AQUA, TextDecoration.BOLD))
+                        .withLore(
+                                Component.text("Adds an ore to your base.", NamedTextColor.GRAY),
+                                Component.text("Max 5 per team!", NamedTextColor.RED)
+                        )
+                        .buildStack(),
+                List.of(
+                        new CItem(new ItemStackBuilder(Material.IRON_ORE)
+                                .withName(Component.text("Iron ore", NamedTextColor.AQUA))
+                                .withLore(Component.text("Price: ", NamedTextColor.GRAY).append(Component.text(10, NamedTextColor.GOLD)),
+                                        Component.text("Gets placed at your base.", NamedTextColor.GRAY))
+                                .buildStack()).onClick(event -> buyOre(event, Material.IRON_ORE, 10)),
+                        new CItem(new ItemStackBuilder(Material.DIAMOND_ORE)
+                                .withName(Component.text("Diamond ore", NamedTextColor.AQUA))
+                                .withLore(Component.text("Price: ", NamedTextColor.GRAY).append(Component.text(30, NamedTextColor.GOLD)),
+                                        Component.text("Gets placed at your base.", NamedTextColor.GRAY))
+                                .buildStack()).onClick(event -> buyOre(event, Material.DIAMOND_ORE, 30))
+                )
+        ),
+        UPGRADES(
+                new ItemStackBuilder(Material.GOLD_BLOCK)
+                        .withName(Component.text("Upgrades", NamedTextColor.GOLD, TextDecoration.BOLD))
+                        .withLore(Component.text("Team upgrades.", NamedTextColor.GRAY))
+                        .buildStack(),
+                List.of(
+                        new CItem(new ItemStackBuilder(Material.GOLD_NUGGET)
+                                .withName(Component.text("Coin dropper upgrade", NamedTextColor.GOLD))
+                                .withLore(Component.text("Makes your coin dropper faster.", NamedTextColor.GRAY),
+                                        Component.text("Click to see the price.", NamedTextColor.GRAY))
+                                .buildStack()).onClick(ShopCategory::buyCoinDropperUpgrade)
                 )
         );
 
@@ -187,21 +253,82 @@ public class ItemShopScreen extends CScreen {
         }
 
         public static CItem itemWithPriceCustom(ItemStack sold, int price) {
-            return new CItem(new ItemStackBuilder(sold.getType()).withName(sold.getItemMeta().displayName()).withLore(Component.text("Price: ", NamedTextColor.GRAY).append(Component.text(price, NamedTextColor.GOLD))).withEnchantments(sold.getEnchantments()).buildStack()).onClick(event -> buyFunction(event, sold, price));
+            return new CItem(new ItemStackBuilder(sold.getType())
+                    .withName(sold.getItemMeta().hasItemName() ? sold.getItemMeta().itemName() : sold.getItemMeta().displayName())
+                    .withLore(Component.text("Price: ", NamedTextColor.GRAY)
+                            .append(Component.text(price, NamedTextColor.GOLD)))
+                    .withEnchantments(sold.getEnchantments()).buildStack())
+                    .onClick(event -> buyFunction(event, sold, price));
+        }
+
+        private static void buyOre(CClickEvent event, Material ore, int price) {
+            Player player = event.player();
+            Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
+            if (team == null) {
+                return;
+            }
+
+            if (!(Kingdom.getInstance().getGameManager().getCurrentState() instanceof IngameState ingame)) {
+                player.sendMessage(Kingdom.PREFIX.append(Component.text("You can only buy ores during the game.", NamedTextColor.RED)));
+                return;
+            }
+
+            // Buy (the coin check happens inside)
+            ingame.buyOre(player, team, ore);
+        }
+
+        private static void buyCoinDropperUpgrade(CClickEvent event) {
+            Player player = event.player();
+            Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
+            if (team == null) {
+                return;
+            }
+
+            int level = team.getCoinDropperLevel();
+            if (level >= 5) {
+                player.sendMessage(Kingdom.PREFIX.append(Component.text("Your coin dropper is already at max level!", NamedTextColor.RED)));
+                player.closeInventory();
+                return;
+            }
+
+            int price = upgradeCost(level);
+            if (countMaterial(player, CURRENCY) < price) {
+                player.sendMessage(Kingdom.PREFIX.append(Component.text("You don't have enough coins to purchase this upgrade.", NamedTextColor.RED)));
+                player.closeInventory();
+                return;
+            }
+
+            removeAmountFromInventory(player, CURRENCY, price);
+            team.setCoinDropperLevel(level + 1);
+            player.sendMessage(Kingdom.PREFIX.append(Component.text("Your coin dropper is now level ", NamedTextColor.GRAY)
+                    .append(Component.text(String.valueOf(level + 1), NamedTextColor.GOLD, TextDecoration.BOLD))
+                    .append(Component.text("!", NamedTextColor.GRAY))));
+            player.closeInventory();
+        }
+
+        public static int upgradeCost(int currentLevel) {
+            // Costs to get from level 1 to 5
+            return switch (currentLevel) {
+                case 1 -> 5;
+                case 2 -> 10;
+                case 3 -> 20;
+                case 4 -> 40;
+                default -> 80;
+            };
         }
 
         public static void buyFunction(CClickEvent event, ItemStack stack, int price) {
-            // Get the amount of pumpkins in the inventory
-            int count = countMaterial(event.player(), Material.BLUE_ICE);
+            // Get the amount of coins in the inventory
+            int count = countMaterial(event.player(), CURRENCY);
 
             if (count < price) {
-                event.player().sendMessage(Kingdom.PREFIX.append(Component.text("You don't have enough Blue Ice to purchase this item.", NamedTextColor.RED)));
+                event.player().sendMessage(Kingdom.PREFIX.append(Component.text("You don't have enough coins to purchase this item.", NamedTextColor.RED)));
                 event.player().closeInventory();
                 return;
             }
 
-            // Remove the pumpkins from the players inventory
-            removeAmountFromInventory(event.player(), Material.BLUE_ICE, price);
+            // Remove the coins from the players inventory
+            removeAmountFromInventory(event.player(), CURRENCY, price);
 
             event.player().getInventory().addItem(stack);
         }

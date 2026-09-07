@@ -1,5 +1,7 @@
 package com.liphium.kingdom.listener.machines;
 
+import com.liphium.kingdom.Kingdom;
+import com.liphium.kingdom.game.team.Team;
 import com.liphium.kingdom.listener.machines.impl.*;
 import com.liphium.kingdom.util.LocationAPI;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -21,14 +23,26 @@ public class MachineManager {
         ArrayList<String> registered = new ArrayList<>();
 
         // Add all machines (all the ones that can be spawned by location)
-        registered.add("IceDropper");
         registered.add("ItemShop");
+        registered.add("CoinDropper");
 
         for (String s : registered) {
             for (int i = 1; i <= 1000; i++) {
                 if (LocationAPI.exists(s + i)) {
-                    machines.add(newMachineByLocation(s, LocationAPI.getLocation(s + i)));
+                    final var machine = newMachineByLocation(s, LocationAPI.getLocation(s + i));
+                    if(machine == null) {
+                        break;
+                    }
+
+                    machines.add(machine);
                 } else break;
+            }
+        }
+
+        // The coin dropper also supports locations named after the teams (e.g. CoinDropperRed for the Red team)
+        for (Team team : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
+            if (LocationAPI.exists("CoinDropper" + team.getName())) {
+                machines.add(newMachineByLocation("CoinDropper" + team.getName(), LocationAPI.getLocation("CoinDropper" + team.getName())));
             }
         }
 
@@ -72,8 +86,17 @@ public class MachineManager {
     }
 
     public Machine newMachineByLocation(String name, Location location) {
+        if (name.startsWith("CoinDropper")) {
+            // CoinDropper1 belongs to the first team, CoinDropper2 to the second, etc.
+            Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(name.replace("CoinDropper", ""));
+            if(team == null) return null;
+
+            return new ItemDropper(location, "Coin dropper", NamedTextColor.GOLD,
+                    new ItemStack(Material.GOLD_NUGGET),
+                    () -> 30 - (team.getCoinDropperLevel() - 1) * 5);
+        }
+
         return switch (name) {
-            case "IceDropper" -> new ItemDropper(location, "Ice", NamedTextColor.AQUA, new ItemStack(Material.BLUE_ICE), () -> Math.max(14 - Bukkit.getOnlinePlayers().size(), 4));
             case "ItemShop" -> new ItemShop(location);
             default -> null;
         };

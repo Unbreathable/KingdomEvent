@@ -1,6 +1,7 @@
 package com.liphium.kingdom.game.team.impl;
 
 import com.liphium.core.util.ItemStackBuilder;
+import com.liphium.kingdom.game.horse.HorseManager;
 import com.liphium.kingdom.game.team.Team;
 import com.liphium.kingdom.util.LocationAPI;
 import net.kyori.adventure.text.Component;
@@ -54,10 +55,27 @@ public class ColoredTeam extends Team {
         // Equip the armor
         player.getInventory().setBoots(boots);
         player.getInventory().setLeggings(leggings);
-        if(!player.getInventory().contains(Material.WOODEN_SWORD)) {
-            player.getInventory().addItem(new ItemStackBuilder(Material.WOODEN_SWORD).makeUnbreakable().buildStack());
-            player.getInventory().addItem(new ItemStackBuilder(Material.WOODEN_AXE).makeUnbreakable().buildStack());
+        player.getInventory().setHelmet(teamHelmet(this.getColor()));
+
+        // Default equipment: copper tools + whistle
+        player.getInventory().addItem(new ItemStackBuilder(Material.COPPER_SWORD).makeUnbreakable().buildStack());
+        player.getInventory().addItem(new ItemStackBuilder(Material.COPPER_PICKAXE).makeUnbreakable().buildStack());
+        player.getInventory().addItem(new ItemStackBuilder(Material.COPPER_AXE).makeUnbreakable().buildStack());
+        player.getInventory().addItem(HorseManager.whistle());
+    }
+
+    /**
+     * Returns an unbreakable leather helmet colored like the team (same color as the other armor).
+     */
+    public static ItemStack teamHelmet(NamedTextColor color) {
+        ItemStack helmet = new ItemStack(Material.LEATHER_HELMET);
+        LeatherArmorMeta helmetMeta = (LeatherArmorMeta) helmet.getItemMeta();
+        if (helmetMeta != null) {
+            helmetMeta.setUnbreakable(true);
+            helmetMeta.setColor(Color.fromRGB(color.value()));
+            helmet.setItemMeta(helmetMeta);
         }
+        return helmet;
     }
 
     @Override
@@ -69,10 +87,12 @@ public class ColoredTeam extends Team {
                     .append(Component.text(this.getName(), this.getColor(), TextDecoration.BOLD))
                     .append(Component.text("!", NamedTextColor.GRAY)));
             player.sendMessage(Component.text(" "));
-            player.sendMessage(Component.text("Destroy the ", NamedTextColor.GRAY)
-                    .append(Component.text("snowman ", NamedTextColor.AQUA))
-                    .append(Component.text("on the other", NamedTextColor.GRAY)));
-            player.sendMessage(Component.text("side to win the game!", NamedTextColor.GRAY));
+            player.sendMessage(Component.text("Steal the ", NamedTextColor.GRAY)
+                    .append(Component.text("enemy flag ", NamedTextColor.AQUA))
+                    .append(Component.text("and carry it to your ", NamedTextColor.GRAY))
+                    .append(Component.text("own flag spot", NamedTextColor.AQUA))
+                    .append(Component.text("!", NamedTextColor.GRAY)));
+            player.sendMessage(Component.text("After 15 minutes the team with the most flags wins!", NamedTextColor.GRAY));
             player.sendMessage(Component.text(" "));
         }
     }

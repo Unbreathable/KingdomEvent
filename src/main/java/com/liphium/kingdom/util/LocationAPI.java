@@ -23,6 +23,19 @@ public class LocationAPI {
     }
 
     /**
+     * Same as getLocation, but returns null silently when the location doesn't exist.
+     */
+    public static Location safe(String locationName) {
+        if (!exists(locationName)) {
+            return null;
+        }
+
+        Location location = Kingdom.getInstance().getConfig().getLocation(locationName);
+        if (location != null) location.setWorld(Bukkit.getWorld(Kingdom.GAME_WORLD));
+        return location;
+    }
+
+    /**
      * Get a location by name in the elfhunt world
      *
      * @param locationName Name of the location in the config file

@@ -14,6 +14,7 @@ public class Team {
     private final NamedTextColor color;
     private final Material material;
     private final ArrayList<Player> players = new ArrayList<>();
+    private int coinDropperLevel = 1;
 
     public Team(String name, NamedTextColor color, Material material) {
         this.name = name;
@@ -31,6 +32,22 @@ public class Team {
 
     public Material getMaterial() {
         return material;
+    }
+
+    public Material getBanner() {
+        return switch (name) {
+            case "Red" -> Material.RED_BANNER;
+            case "Blue" -> Material.BLUE_BANNER;
+            default -> Material.WHITE_BANNER;
+        };
+    }
+
+    public int getCoinDropperLevel() {
+        return coinDropperLevel;
+    }
+
+    public void setCoinDropperLevel(int coinDropperLevel) {
+        this.coinDropperLevel = coinDropperLevel;
     }
 
     public void addPlayer(Player player) {
@@ -66,9 +83,6 @@ public class Team {
     }
 
     public void sendStartMessage() {
-    }
-
-    public void join(Player player) {
     }
 
     public void handleWin() {

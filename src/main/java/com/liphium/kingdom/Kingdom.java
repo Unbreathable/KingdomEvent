@@ -3,6 +3,8 @@ package com.liphium.kingdom;
 import com.liphium.core.Core;
 import com.liphium.kingdom.command.SetCommand;
 import com.liphium.kingdom.command.TimerCommand;
+import com.liphium.kingdom.game.flag.FlagManager;
+import com.liphium.kingdom.game.horse.HorseManager;
 import com.liphium.kingdom.game.GameManager;
 import com.liphium.kingdom.listener.ChatListener;
 import com.liphium.kingdom.listener.GameListener;
@@ -13,19 +15,12 @@ import com.liphium.kingdom.screens.TeamSelectionScreen;
 import com.liphium.kingdom.util.TaskManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Bukkit;
-import org.bukkit.World;
-import org.bukkit.WorldCreator;
+import org.bukkit.NamespacedKey;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
-import java.util.Set;
-import java.util.stream.Stream;
+import org.mvplugins.multiverse.core.MultiverseCoreApi;
+import org.mvplugins.multiverse.core.world.options.CloneWorldOptions;
+import org.mvplugins.multiverse.core.world.options.DeleteWorldOptions;
 
 public final class Kingdom extends JavaPlugin {
 
@@ -33,29 +28,52 @@ public final class Kingdom extends JavaPlugin {
 
     private static Kingdom instance;
 
+    private MultiverseCoreApi core;
+
     private TaskManager taskManager;
 
     private GameManager gameManager;
 
     private MachineManager machineManager;
 
+    private final FlagManager flagManager = new FlagManager();
+
+    private final HorseManager horseManager = new HorseManager();
+
     public static String GAME_WORLD = "game";
+
+    public static NamespacedKey TNT_BOW_KEY;
 
     @Override
     public void onEnable() {
         instance = this;
         Core.init();
+        TNT_BOW_KEY = new NamespacedKey(this, "tnt-bow");
 
-        prepareGameWorld();
+        // Initialize multiverse core and stuff
+        core = MultiverseCoreApi.get();
+        assert core != null;
+        getLogger().info("Deleting game world...");
+        core.getWorldManager().getWorld(GAME_WORLD).peek(world -> {
+            core.getWorldManager().deleteWorld(DeleteWorldOptions.world(world)).onSuccess(() -> {
+                getLogger().info("Successfully deleted the game world.");
+            });
+        });
+        getLogger().info("Creating world for the game...");
+        core.getWorldManager().getWorld("world").peek(world -> {
+            core.getWorldManager().cloneWorld(CloneWorldOptions.fromTo(world, GAME_WORLD)).onSuccess(() -> {
+                getLogger().info("Successfully created the game world.");
+            });
+        });
 
         taskManager = new TaskManager();
         taskManager.initTask();
 
-        machineManager = new MachineManager();
-
         gameManager = new GameManager();
 
-        Listener[] listeners = new Listener[]{new GameListener(), new ChatListener(), new JoinQuitListener()};
+        machineManager = new MachineManager();
+
+        Listener[] listeners = new Listener[]{new GameListener(), new ChatListener(), new JoinQuitListener(), flagManager, horseManager};
         for (Listener listener : listeners) {
             getServer().getPluginManager().registerEvents(listener, this);
         }
@@ -68,7 +86,11 @@ public final class Kingdom extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        deleteWorld(GAME_WORLD);
+        core.getWorldManager().getWorld(GAME_WORLD).peek(world -> {
+            core.getWorldManager().deleteWorld(DeleteWorldOptions.world(world)).onSuccess(() -> {
+                getLogger().info("Successfully deleted the game world.");
+            });
+        });
     }
 
     public GameManager getGameManager() {
@@ -79,84 +101,19 @@ public final class Kingdom extends JavaPlugin {
         return machineManager;
     }
 
+    public FlagManager getFlagManager() {
+        return flagManager;
+    }
+
+    public HorseManager getHorseManager() {
+        return horseManager;
+    }
+
     public TaskManager getTaskManager() {
         return taskManager;
     }
 
     public static Kingdom getInstance() {
         return instance;
-    }
-
-    private void prepareGameWorld() {
-        deleteWorld(GAME_WORLD);
-
-        World sourceWorld = Bukkit.getWorld("world");
-        if (sourceWorld == null) {
-            sourceWorld = Bukkit.createWorld(WorldCreator.name("world"));
-        }
-        if (sourceWorld == null) {
-            getLogger().warning("Could not load source world 'world'.");
-            return;
-        }
-
-        Path sourcePath = sourceWorld.getWorldFolder().toPath();
-        Path targetPath = sourcePath.getParent().resolve(GAME_WORLD);
-
-        try {
-            copyDirectory(sourcePath, targetPath);
-            Bukkit.createWorld(WorldCreator.name(GAME_WORLD));
-            getLogger().info("Successfully prepared the game world.");
-        } catch (IOException exception) {
-            getLogger().warning("Failed to prepare the game world: " + exception.getMessage());
-        }
-    }
-
-    private void deleteWorld(String worldName) {
-        World world = Bukkit.getWorld(worldName);
-        if (world != null) {
-            Bukkit.unloadWorld(world, false);
-        }
-
-        Path worldPath = Bukkit.getWorldContainer().toPath().resolve(worldName);
-        try {
-            if (Files.notExists(worldPath)) {
-                return;
-            }
-            Files.walk(worldPath)
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (IOException ignored) {
-                        }
-                    });
-            getLogger().info("Successfully deleted world '" + worldName + "'.");
-        } catch (IOException exception) {
-            getLogger().warning("Failed to delete world '" + worldName + "': " + exception.getMessage());
-        }
-    }
-
-    private void copyDirectory(Path source, Path target) throws IOException {
-        Set<String> ignoredEntries = Set.of("uid.dat", "session.lock");
-        try (Stream<Path> stream = Files.walk(source)) {
-            for (Path path : stream.toList()) {
-                Path relative = source.relativize(path);
-                if (relative.toString().isEmpty()) {
-                    continue;
-                }
-
-                Path destination = target.resolve(relative.toString());
-                if (ignoredEntries.contains(path.getFileName().toString())) {
-                    continue;
-                }
-
-                if (Files.isDirectory(path)) {
-                    Files.createDirectories(destination);
-                } else {
-                    Files.createDirectories(destination.getParent());
-                    Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-        }
     }
 }

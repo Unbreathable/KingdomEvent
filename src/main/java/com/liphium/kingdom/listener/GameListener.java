@@ -65,7 +65,7 @@ public class GameListener implements Listener {
 
     @EventHandler
     public void onEntitySpawn(EntitySpawnEvent event) {
-        if (event.getEntityType().equals(EntityType.ITEM) || event.getEntityType().equals(EntityType.FIREWORK_ROCKET) || event.getEntityType().equals(EntityType.ARMOR_STAND) || event.getEntityType().equals(EntityType.LINGERING_POTION) || event.getEntityType().equals(EntityType.SPLASH_POTION) || event.getEntityType().equals(EntityType.AREA_EFFECT_CLOUD) || event.getEntityType().equals(EntityType.WIND_CHARGE) || event.getEntityType().equals(EntityType.BREEZE_WIND_CHARGE) || event.getEntityType().equals(EntityType.TNT) || event.getEntityType().equals(EntityType.ARROW) || event.getEntityType().equals(EntityType.SNOW_GOLEM) || event.getEntityType().equals(EntityType.SNOWBALL)) {
+        if (event.getEntityType().equals(EntityType.ITEM) || event.getEntityType().equals(EntityType.FIREWORK_ROCKET) || event.getEntityType().equals(EntityType.ARMOR_STAND) || event.getEntityType().equals(EntityType.LINGERING_POTION) || event.getEntityType().equals(EntityType.SPLASH_POTION) || event.getEntityType().equals(EntityType.AREA_EFFECT_CLOUD) || event.getEntityType().equals(EntityType.WIND_CHARGE) || event.getEntityType().equals(EntityType.BREEZE_WIND_CHARGE) || event.getEntityType().equals(EntityType.TNT) || event.getEntityType().equals(EntityType.ARROW) || event.getEntityType().equals(EntityType.SNOW_GOLEM) || event.getEntityType().equals(EntityType.HORSE) || event.getEntityType().equals(EntityType.FIREBALL)) {
             Kingdom.getInstance().getGameManager().getCurrentState().onSpawn(event);
             return;
         }

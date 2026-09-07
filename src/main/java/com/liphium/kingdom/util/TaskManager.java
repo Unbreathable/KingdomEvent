@@ -9,27 +9,29 @@ public class TaskManager {
 
     private final ArrayList<Runnable> runnables = new ArrayList<>();
     private final ArrayList<Runnable> toRemove = new ArrayList<>();
+    private final ArrayList<Runnable> toAdd = new ArrayList<>();
 
     public void initTask() {
 
         new BukkitRunnable() {
             @Override
             public void run() {
-
-                for (Runnable rem : toRemove) {
-                    runnables.remove(rem);
-                }
+                runnables.addAll(toAdd);
+                toAdd.clear();
 
                 for (Runnable runnable : runnables) {
                     runnable.run();
                 }
+
+                toRemove.forEach(runnables::remove);
+                toRemove.clear();
             }
         }.runTaskTimer(Kingdom.getInstance(), 0, 1);
 
     }
 
     public void inject(Runnable runnable) {
-        runnables.add(runnable);
+        toAdd.add(runnable);
     }
 
     public void uninject(Runnable runnable) {

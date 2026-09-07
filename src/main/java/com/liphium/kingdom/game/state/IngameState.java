@@ -5,12 +5,15 @@ import com.liphium.core.util.ItemStackBuilder;
 import com.liphium.kingdom.Kingdom;
 import com.liphium.kingdom.game.GameState;
 import com.liphium.kingdom.game.team.Team;
-import com.liphium.kingdom.listener.machines.impl.DestroyableSnowman;
+import com.liphium.kingdom.screens.ItemShopScreen;
+import com.liphium.kingdom.util.CastleRegion;
 import com.liphium.kingdom.util.LocationAPI;
 import com.liphium.kingdom.util.Messages;
+import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.title.Title;
 import org.bukkit.*;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.*;
@@ -23,10 +26,12 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.util.Vector;
 
+import java.time.Duration;
 import java.util.*;
 
 public class IngameState extends GameState {
@@ -35,31 +40,60 @@ public class IngameState extends GameState {
 
     private Runnable runnable;
 
-    private static final double SNOWMAN_HEALTH = 300;
-    private static final int ICE_ON_DEATH = 2; // The amount of ice a player gets when they kill someone
+    private static final int GAME_SECONDS = 15 * 60;
 
-    private static final int SNOWBALL_TICKS = 1;
-    private static final int SNOWBALL_COOLDOWN = 6; // Cooldown that is set when players use a snowball
-    private static final double SNOWBALL_DAMAGE = 2.5;
+    // Respawn
+    private static final int RESPAWN_SECONDS = 10;
 
-    private static final int ARROW_COOLDOWN = 70;
+    // Economy
+    private static final int KILL_REWARD = 5;
+    private static final Material CURRENCY = Material.GOLD_NUGGET;
+
+    // Explosives
+    public static final Key TNT_BOW_COOLDOWN_KEY = Key.key("kingdom", "tnt_bow_cooldown");
+    private static final int TNT_BOW_COOLDOWN = 60;
+
+    // Block regeneration
+    private static final int WOOD_COBBLE_REGEN_SECONDS = 5;
+    private static final Map<Material, Integer> ORE_REGEN_SECONDS = Map.ofEntries(
+            Map.entry(Material.COAL_ORE, 10), Map.entry(Material.DEEPSLATE_COAL_ORE, 10),
+            Map.entry(Material.COPPER_ORE, 10), Map.entry(Material.DEEPSLATE_COPPER_ORE, 10),
+            Map.entry(Material.IRON_ORE, 10), Map.entry(Material.DEEPSLATE_IRON_ORE, 10),
+            Map.entry(Material.GOLD_ORE, 10), Map.entry(Material.DEEPSLATE_GOLD_ORE, 10),
+            Map.entry(Material.DIAMOND_ORE, 20), Map.entry(Material.DEEPSLATE_DIAMOND_ORE, 20),
+            Map.entry(Material.EMERALD_ORE, 10), Map.entry(Material.DEEPSLATE_EMERALD_ORE, 10)
+    );
+
+    // Ore purchases (5 per team per type)
+    private static final int MAX_ORES_PER_TEAM = 5;
 
     public IngameState() {
-        super("In game", 30);
+        super("In game", GAME_SECONDS);
     }
 
-    private final HashMap<String, DestroyableSnowman> snowmen = new HashMap<>();
     private final HashMap<Location, Boolean> placedBlocks = new HashMap<>();
-    private final HashMap<Player, String> currentArrowEffect = new HashMap<>();
-    private HashMap<Location, Integer> toDeleteAfter = new HashMap<>();
+    private final HashMap<Location, Integer> toDeleteAfter = new HashMap<>();
+
+    // Block regeneration: location -> (material, seconds left)
+    private final HashMap<Location, PendingRegen> regenerating = new HashMap<>();
+    // Purchased ores per team
+    private final HashMap<Team, HashMap<Material, Integer>> boughtOres = new HashMap<>();
+
+    private static class PendingRegen {
+        final Material material;
+        int seconds;
+
+        PendingRegen(Material material, int seconds) {
+            this.material = material;
+            this.seconds = seconds;
+        }
+    }
 
     @Override
     public void start() {
 
         final var world = Bukkit.getWorld(Kingdom.GAME_WORLD);
         assert(world != null);
-        world.setGameRule(GameRules.ADVANCE_TIME, true);
-        world.setGameRule(GameRules.ADVANCE_WEATHER, true);
         world.setTime(0);
         world.setThundering(false);
         world.setStorm(false);
@@ -75,7 +109,7 @@ public class IngameState extends GameState {
 
         for (Player player : playersWithOutTeam) {
             Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeamWithLeastPlayers();
-            team.join(player);
+            team.addPlayer(player);
         }
 
         // World cleanup
@@ -83,14 +117,9 @@ public class IngameState extends GameState {
             if (entity.getType() != EntityType.ARMOR_STAND && entity.getType() != EntityType.PLAYER) entity.remove();
         }
 
-        // Place all the snowmen
-        for(Team team : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
-            final var location = LocationAPI.getLocation(team.getName() + "-Snowman");
-            final var man = new DestroyableSnowman(location, team, SNOWMAN_HEALTH);
-
-            Kingdom.getInstance().getMachineManager().addMachine(man);
-            snowmen.put(team.getName(), man);
-        }
+        // Set up the flags and remove old horses
+        Kingdom.getInstance().getFlagManager().start();
+        Kingdom.getInstance().getHorseManager().stop();
 
         // Initialize all the teams
         for (Team team : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
@@ -107,70 +136,113 @@ public class IngameState extends GameState {
         // Start the game loop
         Kingdom.getInstance().getTaskManager().inject(runnable = new Runnable() {
             int tickCount = 0;
-            int snowballCount = 0;
 
             @Override
             public void run() {
                 Kingdom.getInstance().getGameManager().getTeamManager().tick();
                 Kingdom.getInstance().getMachineManager().tick();
+                Kingdom.getInstance().getFlagManager().tick();
 
+                // Process regenerating blocks and the dropped flags once a second
                 if (tickCount++ >= 20) {
                     tickCount = 0;
 
-                    // Create an action bar with a health bar for the snowmen of all teams
-                    var base = Component.text("");
-                    var index = 0;
-                    for(Team team : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
-                        base = base.append(snowmen.get(team.getName()).colorWithHealth("■■■■■■■■", team.getColor(), NamedTextColor.GRAY));
-                        if(index != Kingdom.getInstance().getGameManager().getTeamManager().getTeams().size() - 1) {
-                            base = base.appendSpace().append(Component.text("|", NamedTextColor.DARK_GRAY)).appendSpace();
+                    processRegeneration();
+                    Kingdom.getInstance().getFlagManager().tickPerSecond();
+
+                    // The timer can be paused with /timer pause
+                    if (!paused) count--;
+
+                    // Action bar with the remaining time and the flag scores
+                    var teams = Kingdom.getInstance().getGameManager().getTeamManager().getTeams();
+                    var bar = Component.text(formatTime(count), NamedTextColor.AQUA, TextDecoration.BOLD).append(Component.text("  |  ", NamedTextColor.DARK_GRAY));
+                    // Scores as "1 : 0 flags": numbers colored by team, the word stays gray & not bold
+                    for (int index = 0; index < teams.size(); index++) {
+                        Team team = teams.get(index);
+                        if (index > 0) {
+                            bar = bar.append(Component.text(" : ", NamedTextColor.DARK_GRAY));
                         }
-                        index++;
+                        bar = bar.append(Component.text(String.valueOf(Kingdom.getInstance().getFlagManager().getScore(team)), team.getColor())
+                                .decoration(TextDecoration.BOLD, false));
                     }
+                    bar = bar.append(Component.text(" flags", NamedTextColor.GRAY).decoration(TextDecoration.BOLD, false));
+                    Messages.actionBar(bar);
 
-                    // Let a team win the game when the snowman is down
-                    for(Team team : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
-                        final var man = snowmen.get(team.getName());
-
-                        if(man.man.isDead()) {
-                            final var other = Kingdom.getInstance().getGameManager().getTeamManager().getTeams().stream()
-                                    .filter(t -> !t.getName().equals(team.getName())).findFirst().get();
-                            handleWin(other);
-                        }
-                    }
-
-                    Messages.actionBar(base);
-                }
-
-                // Give players snowballs every few ticks
-                if(snowballCount++ >= SNOWBALL_TICKS) {
-                    snowballCount = 0;
-
-                    for(Team team : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
-                        for(Player player : team.getPlayers()) {
-                            player.getInventory().setItemInOffHand(new ItemStackBuilder(Material.SNOWBALL).withAmount(16).buildStack());
-                        }
+                    // End the game when the time is over
+                    if (count <= 0) {
+                        handleTimeOver();
                     }
                 }
-
-                // Delete all blocks that should be deleted
-                final var newMap = new HashMap<Location, Integer>();
-                for(var entry : toDeleteAfter.entrySet()) {
-                    final var newValue = entry.getValue() - 1;
-                    if(newValue <= 0) {
-                        entry.getKey().getBlock().setType(Material.AIR);
-                    } else {
-                        newMap.put(entry.getKey(), newValue);
-                    }
-                }
-                toDeleteAfter = newMap;
             }
         });
     }
 
+    /**
+     * Returns "flag" for exactly one and "flags" for everything else.
+     */
+    public static String flagWord(int count) {
+        return count == 1 ? "flag" : "flags";
+    }
+
+    private String formatTime(int seconds) {
+        if(paused) {
+            return "PAUSED";
+        }
+        if (seconds < 0) seconds = 0;
+        return (seconds / 60) + ":" + String.format("%02d", seconds % 60);
+    }
+
+    private void handleTimeOver() {
+        Kingdom.getInstance().getTaskManager().uninject(runnable);
+        Kingdom.getInstance().getFlagManager().stop();
+        Kingdom.getInstance().getHorseManager().stop();
+
+        var teams = Kingdom.getInstance().getGameManager().getTeamManager().getTeams();
+        Team winner = null;
+        int highest = -1;
+        boolean tie = false;
+        for (Team team : teams) {
+            int score = Kingdom.getInstance().getFlagManager().getScore(team);
+            if (score > highest) {
+                highest = score;
+                winner = team;
+                tie = false;
+            } else if (score == highest) {
+                tie = true;
+            }
+        }
+
+        if (winner == null || tie) {
+            Bukkit.broadcast(Kingdom.PREFIX.append(Component.text("It's a tie! ", NamedTextColor.GRAY)
+                    .append(Component.text("Both teams captured " + highest + " " + flagWord(highest) + ".", NamedTextColor.GRAY))));
+        } else {
+            winner.handleWin();
+        }
+
+        Kingdom.getInstance().getGameManager().setCurrentState(new EndState());
+    }
+
+    public void handleWin(Team team) {
+        team.handleWin();
+        Kingdom.getInstance().getTaskManager().uninject(runnable);
+        Kingdom.getInstance().getFlagManager().stop();
+        Kingdom.getInstance().getHorseManager().stop();
+        Kingdom.getInstance().getGameManager().setCurrentState(new EndState());
+    }
+
     @Override
     public void onInteract(PlayerInteractEvent event) {
-        if (event.getItem() != null && (event.getItem().getType() == Material.WIND_CHARGE || event.getItem().getType() == Material.SNOWBALL)) {
+        if (event.getItem() != null && (event.getItem().getType() == Material.WIND_CHARGE)) {
+            return;
+        }
+
+        // Block using the TNT bow while it's on cooldown (other bows stay usable)
+        if (event.getItem() != null && event.getItem().getType() == Material.BOW
+                && (event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_AIR || event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK)
+                && isTntBow(event.getItem())
+                && event.getPlayer().getCooldown(TNT_BOW_COOLDOWN_KEY) > 0) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage(Kingdom.PREFIX.append(Component.text("Your TNT bow is still on cooldown!", NamedTextColor.RED)));
             return;
         }
 
@@ -182,79 +254,48 @@ public class IngameState extends GameState {
 
             var hit = false;
             DroppableTrap trapToPlace = null;
-            switch(usedItem.getType()) {
-                case Material.GRAY_DYE -> {
-                    if(event.getClickedBlock() == null && currentArrowEffect.containsKey(event.getPlayer())) {
-                        event.getPlayer().sendMessage(Kingdom.PREFIX.append(Component.text("You already have an arrow effect equipped.", NamedTextColor.RED)));
-                        return;
-                    }
 
-                    hit = true;
-                    reduceMainHandItem(event.getPlayer(), Material.GRAY_DYE);
-                    if(event.getClickedBlock() == null) {
-                        currentArrowEffect.put(event.getPlayer(), "slowness");
-                    } else {
+            // Throwable fireballs: launch a fireball in the direction the player is looking
+            if (usedItem.getType() == Material.FIRE_CHARGE
+                    && (event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_AIR || event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK)) {
+                event.setCancelled(true);
+                reduceMainHandItem(event.getPlayer(), Material.FIRE_CHARGE);
+
+                Fireball fireball = event.getPlayer().launchProjectile(Fireball.class);
+                fireball.setVelocity(event.getPlayer().getEyeLocation().getDirection().multiply(1.5));
+                fireball.setYield(2f);
+                return;
+            }
+
+            if (event.getClickedBlock() != null) {
+                switch (usedItem.getType()) {
+                    case Material.GRAY_DYE -> {
+                        reduceMainHandItem(event.getPlayer(), Material.GRAY_DYE);
                         trapToPlace = new SlowTrap(event.getClickedBlock().getLocation().clone().add(0.5, 1, 0.5), team);
                     }
-                }
-                case Material.LIME_DYE -> {
-                    if(event.getClickedBlock() == null && currentArrowEffect.containsKey(event.getPlayer())) {
-                        event.getPlayer().sendMessage(Kingdom.PREFIX.append(Component.text("You already have an arrow effect equipped.", NamedTextColor.RED)));
-                        return;
-                    }
-
-                    hit = true;
-                    reduceMainHandItem(event.getPlayer(), Material.LIME_DYE);
-                    if(event.getClickedBlock() == null) {
-                        currentArrowEffect.put(event.getPlayer(), "poison");
-                    } else {
+                    case Material.LIME_DYE -> {
+                        reduceMainHandItem(event.getPlayer(), Material.LIME_DYE);
                         trapToPlace = new PoisonTrap(event.getClickedBlock().getLocation().clone().add(0.5, 1, 0.5), team);
                     }
-                }
-                case Material.GUNPOWDER -> {
-                    if(event.getClickedBlock() == null && currentArrowEffect.containsKey(event.getPlayer())) {
-                        event.getPlayer().sendMessage(Kingdom.PREFIX.append(Component.text("You already have an arrow effect equipped.", NamedTextColor.RED)));
-                        return;
-                    }
-
-                    hit = true;
-                    reduceMainHandItem(event.getPlayer(), Material.GUNPOWDER);
-                    if(event.getClickedBlock() == null) {
-                        currentArrowEffect.put(event.getPlayer(), "explosion");
-                    } else {
+                    case Material.GUNPOWDER -> {
+                        reduceMainHandItem(event.getPlayer(), Material.GUNPOWDER);
                         trapToPlace = new ExplosionTrap(event.getClickedBlock().getLocation().clone().add(0.5, 1, 0.5), team);
                     }
-                }
-                case Material.WHITE_DYE -> {
-                    if(event.getClickedBlock() == null && currentArrowEffect.containsKey(event.getPlayer())) {
-                        event.getPlayer().sendMessage(Kingdom.PREFIX.append(Component.text("You already have an arrow effect equipped.", NamedTextColor.RED)));
-                        return;
-                    }
-
-                    hit = true;
-                    reduceMainHandItem(event.getPlayer(), Material.WHITE_DYE);
-                    if(event.getClickedBlock() == null) {
-                        currentArrowEffect.put(event.getPlayer(), "web");
-                    } else {
+                    case Material.WHITE_DYE -> {
+                        reduceMainHandItem(event.getPlayer(), Material.WHITE_DYE);
                         trapToPlace = new WebTrap(event.getClickedBlock().getLocation().clone().add(0.5, 1, 0.5), team);
                     }
+                    default -> {
+                    }
                 }
             }
 
-            if(trapToPlace != null) {
+            // Place the trap
+            if (trapToPlace != null) {
                 traps.add(trapToPlace);
                 trapToPlace.drop();
-            }
-
-            // Send a message
-            if(hit) {
-                if(trapToPlace != null) {
-                    event.getPlayer().sendMessage(Kingdom.PREFIX
-                            .append(Component.text("Trap placed!", NamedTextColor.GRAY)));
-                } else {
-                    event.getPlayer().sendMessage(Kingdom.PREFIX
-                            .append(Component.text("Arrow effect attached to next arrow!", NamedTextColor.GRAY)));
-                }
+                event.getPlayer().sendMessage(Kingdom.PREFIX
+                        .append(Component.text("Trap placed!", NamedTextColor.GRAY)));
             }
         }
     }
@@ -308,7 +349,7 @@ public class IngameState extends GameState {
                 );
 
                 var found = false;
-                for(final var toTrace : toRaytrace) {
+                for (final var toTrace : toRaytrace) {
                     final var direction = toTrace.clone().subtract(trap.location).toVector().normalize();
                     final var distance = trap.location.distance(toTrace);
                     final var result = trap.location.getWorld().rayTraceBlocks(trap.location, direction, distance, FluidCollisionMode.NEVER, true);
@@ -319,10 +360,10 @@ public class IngameState extends GameState {
                     }
                 }
 
-                if(found) {
+                if (found) {
                     toRemove.add(trap);
                     trap.doEffect(List.of(event.getPlayer()));
-                    for(var loc : trap.blocksToDelete()) {
+                    for (var loc : trap.blocksToDelete()) {
                         toDeleteAfter.put(loc, 120);
                     }
                 }
@@ -337,11 +378,7 @@ public class IngameState extends GameState {
 
     @Override
     public void onDamage(EntityDamageEvent event) {
-        if (event.getEntity().getType() == EntityType.ITEM) {
-            event.setCancelled(true);
-        } else {
-            event.setCancelled(false);
-        }
+        event.setCancelled(event.getEntity().getType() == EntityType.ITEM);
     }
 
     @Override
@@ -349,55 +386,69 @@ public class IngameState extends GameState {
         if (event.getEntity().getType() == EntityType.ARMOR_STAND || event.getEntity().getType() == EntityType.ITEM) {
             event.setCancelled(true);
         }
+
+        // No friendly fire between players
+        if (event.getEntity() instanceof Player victim && event.getDamager() instanceof Player attacker) {
+            Team victimTeam = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(victim);
+            Team attackerTeam = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(attacker);
+
+            if (victimTeam != null && victimTeam.equals(attackerTeam)) {
+                event.setCancelled(true);
+            }
+        }
     }
 
     @Override
     public void onKnockbackByEntity(EntityKnockbackByEntityEvent event) {
-        if(event.getEntity().getType() == EntityType.ITEM) {
+        if (event.getEntity().getType() == EntityType.ITEM) {
             event.setCancelled(true);
         }
     }
 
     @Override
     public void onProjectileLaunch(ProjectileLaunchEvent event) {
-        if(event.getEntity().getShooter() == null || !(event.getEntity().getShooter() instanceof Player player)) return;
+        if (event.getEntity().getShooter() == null || !(event.getEntity().getShooter() instanceof Player player)) return;
 
-        event.getEntity().setMetadata("team", new FixedMetadataValue(Kingdom.getInstance(), Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player).getName()));
-
-        // Handle the snowball and arrow cooldowns
-        if(event.getEntity().getType() == EntityType.SNOWBALL) {
-            player.setCooldown(Material.SNOWBALL, SNOWBALL_COOLDOWN);
-        } else if(event.getEntity().getType() == EntityType.ARROW) {
-            player.setCooldown(Material.CROSSBOW, ARROW_COOLDOWN);
-            player.setCooldown(Material.BOW, ARROW_COOLDOWN);
-
-            if(currentArrowEffect.containsKey(player)) {
-                final var effect = currentArrowEffect.get(player);
-                event.getEntity().setMetadata("effect", new FixedMetadataValue(Kingdom.getInstance(), effect));
-                currentArrowEffect.remove(player);
-            }
+        Team shooterTeam = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
+        if (shooterTeam == null) {
+            event.setCancelled(true);
+            return;
         }
+
+        event.getEntity().setMetadata("team", new FixedMetadataValue(Kingdom.getInstance(), shooterTeam.getName()));
+
+        // Handle the TNT bow
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+        if (weapon.getType() == Material.BOW && isTntBow(weapon)) {
+            player.setCooldown(TNT_BOW_COOLDOWN_KEY, TNT_BOW_COOLDOWN * 20);
+            event.getEntity().setMetadata("tntbow", new FixedMetadataValue(Kingdom.getInstance(), true));
+        }
+    }
+
+    private boolean isTntBow(ItemStack item) {
+        final var meta = item.getItemMeta();
+        return meta != null && meta.getPersistentDataContainer().has(Kingdom.TNT_BOW_KEY, PersistentDataType.BYTE);
     }
 
     @Override
     public void onEntityExplode(EntityExplodeEvent event) {
+        // Explosions only destroy placed blocks, every other block is only protected in castles
         event.blockList().removeIf(block -> {
-            if(placedBlocks.containsKey(block.getLocation())) {
+
+            // If the block was placed, it can safely be removed
+            if (placedBlocks.containsKey(block.getLocation())) {
                 placedBlocks.remove(block.getLocation());
                 return false;
             }
 
-            return true;
+            // Check if it's in castle and if so, cancel the explosion for that block
+            Team castleTeam = CastleRegion.teamAt(block.getLocation());
+            return castleTeam != null;
         });
     }
 
     @Override
     public void onPlace(BlockPlaceEvent event) {
-        if (event.getBlockPlaced().getType().equals(Material.REDSTONE_TORCH)) {
-            event.setCancelled(true);
-            return;
-        }
-
         if (event.getBlockPlaced().getLocation().getY() >= 250) {
             event.setCancelled(true);
             return;
@@ -412,10 +463,10 @@ public class IngameState extends GameState {
         }
 
         // Instantly light TNT
-        if(event.getBlock().getType() == Material.TNT) {
+        if (event.getBlock().getType() == Material.TNT) {
             event.getBlock().setType(Material.AIR);
             final var world = event.getBlock().getWorld();
-            world.spawnEntity(event.getBlock().getLocation(), EntityType.TNT);
+            world.spawnEntity(event.getBlock().getLocation().clone().add(0.5, 0, 0.5), EntityType.TNT);
             return;
         }
 
@@ -431,12 +482,6 @@ public class IngameState extends GameState {
             return;
         }
 
-        // Only let placed blocks be broken again
-        if (placedBlocks.get(event.getBlock().getLocation()) != null) {
-            placedBlocks.remove(event.getBlock().getLocation());
-            return;
-        }
-
         // Let grass blocks be removed permanently (for PvP)
         if (grassTypes.contains(event.getBlock().getType())) {
             event.setDropItems(false);
@@ -444,7 +489,148 @@ public class IngameState extends GameState {
             return;
         }
 
+        // Placed blocks can always be broken again
+        if (placedBlocks.get(event.getBlock().getLocation()) != null) {
+            placedBlocks.remove(event.getBlock().getLocation());
+            return;
+        }
+
+        Material type = event.getBlock().getType();
+        Team playerTeam = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(event.getPlayer());
+        Team castleTeam = CastleRegion.teamAt(event.getBlock().getLocation());
+
+        // Inside castles: only the own team can break blocks, wood & cobble regenerate
+        if (castleTeam != null) {
+            if (!castleTeam.equals(playerTeam)) {
+                event.setCancelled(true);
+                return;
+            }
+
+            // Ores regenerate everywhere (also inside castles)
+            if (ORE_REGEN_SECONDS.containsKey(type)) {
+                handleRegenBreak(event, type, ORE_REGEN_SECONDS.get(type));
+                return;
+            }
+
+            if (isWoodOrCobble(type)) {
+                handleRegenBreak(event, type, WOOD_COBBLE_REGEN_SECONDS);
+                return;
+            }
+
+            event.setCancelled(true);
+            return;
+        }
+
+        // Ores regenerate everywhere outside castles
+        if (ORE_REGEN_SECONDS.containsKey(type)) {
+            handleRegenBreak(event, type, ORE_REGEN_SECONDS.get(type));
+            return;
+        }
+
+        // The rest of the map is fully destructible
+        event.setCancelled(false);
+    }
+
+    /**
+     * Drops direct materials (or the block itself) and turns the block into bedrock for a while.
+     */
+    private void handleRegenBreak(BlockBreakEvent event, Material type, int regenSeconds) {
+        // Cancel the break: the server would otherwise remove the block (set it to air) after this
+        // handler returns, overwriting the bedrock we set here.
         event.setCancelled(true);
+        event.setDropItems(false);
+
+        // Give the drop straight to the player's inventory (ores drop their direct material,
+        // everything else the block itself); overflow drops on the ground
+        Material drop = oreDrop(type);
+        var leftover = event.getPlayer().getInventory().addItem(new ItemStack(drop != null ? drop : type));
+        for (ItemStack item : leftover.values()) {
+            event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation().clone().add(0.5, 0.5, 0.5), item);
+        }
+
+        regenerating.put(event.getBlock().getLocation(), new PendingRegen(type, regenSeconds));
+        event.getBlock().setType(Material.BEDROCK);
+    }
+
+    private Material oreDrop(Material ore) {
+        return switch (ore) {
+            case COAL_ORE, DEEPSLATE_COAL_ORE -> Material.COAL;
+            case COPPER_ORE, DEEPSLATE_COPPER_ORE -> Material.COPPER_INGOT;
+            case IRON_ORE, DEEPSLATE_IRON_ORE -> Material.IRON_INGOT;
+            case GOLD_ORE, DEEPSLATE_GOLD_ORE -> Material.GOLD_INGOT;
+            case DIAMOND_ORE, DEEPSLATE_DIAMOND_ORE -> Material.DIAMOND;
+            case EMERALD_ORE, DEEPSLATE_EMERALD_ORE -> Material.EMERALD;
+            case REDSTONE_ORE, DEEPSLATE_REDSTONE_ORE -> Material.REDSTONE;
+            case LAPIS_ORE, DEEPSLATE_LAPIS_ORE -> Material.LAPIS_LAZULI;
+            default -> null;
+        };
+    }
+
+    private boolean isWoodOrCobble(Material material) {
+        return material == Material.COBBLESTONE
+                || material.name().endsWith("_LOG")
+                || material.name().endsWith("_WOOD")
+                || material.name().endsWith("_PLANKS");
+    }
+
+    private void processRegeneration() {
+        final var newMap = new HashMap<Location, PendingRegen>();
+        for (var entry : regenerating.entrySet()) {
+            if (--entry.getValue().seconds <= 0) {
+                // Only regenerate if the block is still bedrock
+                if (entry.getKey().getBlock().getType() == Material.BEDROCK) {
+                    entry.getKey().getBlock().setType(entry.getValue().material);
+                }
+            } else {
+                newMap.put(entry.getKey(), entry.getValue());
+            }
+        }
+        regenerating.clear();
+        regenerating.putAll(newMap);
+    }
+
+    /**
+     * Lets a team buy an ore in the shop which is then placed at their base.
+     * Returns the message for the player.
+     */
+    public boolean buyOre(Player player, Team team, Material ore) {
+        int cost = ore == Material.IRON_ORE ? 10 : 30;
+
+        int coins = ItemShopScreen.countMaterial(player, CURRENCY);
+        if (coins < cost) {
+            player.sendMessage(Kingdom.PREFIX.append(Component.text("You don't have enough coins!", NamedTextColor.RED)));
+            return false;
+        }
+
+        int bought = boughtOres.computeIfAbsent(team, t -> new HashMap<>()).getOrDefault(ore, 0);
+        if (bought >= MAX_ORES_PER_TEAM) {
+            player.sendMessage(Kingdom.PREFIX.append(Component.text("Your team already bought the maximum of " + MAX_ORES_PER_TEAM + " of this ore!", NamedTextColor.RED)));
+            return false;
+        }
+
+        String shortName = ore == Material.IRON_ORE ? "Iron" : "Diamond";
+        Location spot = null;
+        for (int i = 1; i <= MAX_ORES_PER_TEAM; i++) {
+            Location location = LocationAPI.safe(team.getName() + "-" + shortName + "Ore" + i);
+            if (location != null && location.getBlock().getType() == Material.AIR) {
+                spot = location;
+                break;
+            }
+        }
+
+        if (spot == null) {
+            player.sendMessage(Kingdom.PREFIX.append(Component.text("No free ore spot found at your base!", NamedTextColor.RED)));
+            return false;
+        }
+
+        ItemShopScreen.removeAmountFromInventory(player, CURRENCY, cost);
+        boughtOres.get(team).put(ore, bought + 1);
+        spot.getBlock().setType(ore);
+
+        player.sendMessage(Kingdom.PREFIX.append(Component.text("An ", NamedTextColor.GRAY)
+                .append(Component.text(shortName + " ore", NamedTextColor.AQUA))
+                .append(Component.text(" has been added to your base!", NamedTextColor.GRAY))));
+        return true;
     }
 
     @Override
@@ -455,14 +641,12 @@ public class IngameState extends GameState {
         event.setKeepInventory(true);
         event.setKeepLevel(true);
 
-        if (player.getKiller() != null) {
+        // Drop the flag if the player was carrying one
+        Kingdom.getInstance().getFlagManager().dropFlag(player);
 
-            /*
-            // Give blue ice to the other person
-            final int blueIce = ItemShopScreen.countMaterial(event.getPlayer(), Material.BLUE_ICE);
-            player.getInventory().remove(Material.BLUE_ICE);
-            player.getKiller().give(new ItemStack(Material.BLUE_ICE, blueIce));
-             */
+        // Give the killer a coin reward
+        if (player.getKiller() != null) {
+            player.getKiller().getInventory().addItem(new ItemStack(CURRENCY, KILL_REWARD));
 
             Bukkit.broadcast(Kingdom.PREFIX.append(Component.text(player.getName(), NamedTextColor.AQUA)
                     .append(Component.text(" was killed by ", NamedTextColor.GRAY))
@@ -474,6 +658,7 @@ public class IngameState extends GameState {
                     .append(Component.text(" died!", NamedTextColor.GRAY)));
         }
 
+        // Respawn into spectator mode, the respawn event handles the rest
         Kingdom.getInstance().getTaskManager().inject(new Runnable() {
             int tickCount = 0;
 
@@ -482,7 +667,6 @@ public class IngameState extends GameState {
                 if (tickCount++ >= 1) {
                     if (player.isDead()) {
                         player.spigot().respawn();
-                        player.setHealth(20);
                     }
                     Kingdom.getInstance().getTaskManager().uninject(this);
                 }
@@ -493,91 +677,63 @@ public class IngameState extends GameState {
     @Override
     public void onProjectileHit(ProjectileHitEvent event) {
 
-        // Handle effect arrows
-        if(event.getEntity() instanceof Arrow arrow && arrow.hasMetadata("effect")) {
-            final var effect = arrow.getMetadata("effect").getFirst().asString();
-            final var location = event.getHitBlock() == null ? event.getHitEntity().getLocation() : event.getHitBlock().getLocation();
-            final var team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(arrow.getMetadata("team").getFirst().asString());
-            arrow.removeMetadata("effect", Kingdom.getInstance());
+        // Handle the TNT bow
+        if (event.getEntity() instanceof Arrow arrow && arrow.hasMetadata("tntbow")) {
+            arrow.remove();
 
-            // Choose the correct trap for the arrow effect
-            DroppableTrap trap = null;
-            switch(effect) {
-                case "web" -> {
-                    trap = new WebTrap(location, team);
-                }
-                case "slowness" -> {
-                    trap = new SlowTrap(location, team);
-                }
-                case "explosion" -> {
-                    trap = new ExplosionTrap(location, team);
-                }
-                case "poison" -> {
-                    trap = new PoisonTrap(location, team);
-                }
-            }
-            assert(trap != null);
-
-            // Do the arrow effect
-            final var players = new ArrayList<LivingEntity>();
-            for(Entity entity : location.getNearbyEntities(3, 3, 3)) {
-                if(entity instanceof LivingEntity living) {
-                    if(entity instanceof Player player && trap.team.getPlayers().contains(player)) {
-                        continue;
-                    }
-
-                    players.add(living);
-                }
-            }
-
-            trap.doEffect(players);
-            for(var loc : trap.blocksToDelete()) {
-                toDeleteAfter.put(loc, 120);
-            }
-            return;
-        }
-
-        // Snowball handling
-        if(!(event.getEntity().getType() == EntityType.SNOWBALL)) return;
-        if(event.getHitEntity() instanceof LivingEntity target) {
-            if(event.getEntity().hasMetadata("team") && target instanceof Player player) {
-                final var team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(event.getEntity().getMetadata("team").getFirst().asString());
-
-                if(Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player).getName().equals(team.getName())) {
-                    return;
-                }
-            }
-
-            // Make sure the player gets kill credit
-            if(event.getEntity().getShooter() instanceof Player shooter) {
-                target.damage(SNOWBALL_DAMAGE, shooter);
-            } else {
-                target.damage(SNOWBALL_DAMAGE);
-            }
-
-            // Apply knockback similar to vanilla
-            if(target instanceof Player && !(event.getEntity().getShooter() instanceof Player)) {
-                Vector knockback = event.getEntity().getVelocity().normalize().multiply(0.5);
-                knockback.setY(0.4);
-                target.setVelocity(target.getVelocity().add(knockback));
-            }
+            Location location = event.getHitBlock() == null ? event.getHitEntity().getLocation() : event.getHitBlock().getLocation().add(event.getHitBlockFace() == null ? new Vector(0, 0.5, 0) : event.getHitBlockFace().getDirection());
+            var tnt = (TNTPrimed) location.getWorld().spawnEntity(location.add(0.5, 0, 0.5), EntityType.TNT);
+            tnt.setFuseTicks(0);
         }
     }
 
     @Override
     public void onRespawn(PlayerRespawnEvent event) {
-        final var team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(event.getPlayer());
-        event.setRespawnLocation(Objects.requireNonNull(LocationAPI.getLocation(team.getName())));
-    }
+        final var player = event.getPlayer();
+        final var team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
 
-    public void handleWin(Team team) {
-        team.handleWin();
-        Kingdom.getInstance().getTaskManager().uninject(runnable);
-        Kingdom.getInstance().getGameManager().setCurrentState(new EndState());
+        // Spectator respawn at the team's respawn location
+        Location respawnLocation = LocationAPI.safe(team.getName() + "-Respawn");
+        if (respawnLocation == null) {
+            respawnLocation = LocationAPI.getLocation(team.getName());
+        }
+        event.setRespawnLocation(Objects.requireNonNull(respawnLocation));
+
+        // Spectator mode with a countdown, then back into the game
+        Kingdom.getInstance().getTaskManager().inject(new Runnable() {
+            int seconds = RESPAWN_SECONDS * 20; // Convert to ticks
+
+            @Override
+            public void run() {
+                if (!player.isOnline()) {
+                    Kingdom.getInstance().getTaskManager().uninject(this);
+                    return;
+                }
+                if (seconds == RESPAWN_SECONDS * 20) {
+                    player.setGameMode(GameMode.SPECTATOR);
+                }
+
+                final double secondsRounded = Math.round((seconds / 20.0) * 10.0) / 10.0;
+                player.showTitle(Title.title(Component.empty(), Component.text("Respawning in " + secondsRounded + "s", NamedTextColor.GRAY), Title.Times.times(Duration.ZERO, Duration.ofSeconds(1), Duration.ZERO)));
+
+                if (seconds-- <= 0) {
+                    Kingdom.getInstance().getTaskManager().uninject(this);
+                    player.setGameMode(GameMode.SURVIVAL);
+                    player.getInventory().clear();
+                    player.setHealth(20);
+                    player.setFoodLevel(20);
+                    team.giveKit(player, true);
+                    player.clearTitle();
+                }
+            }
+        });
     }
 
     @Override
     public void quit(Player player) {
+        // Drop the flag when the carrier disconnects
+        Kingdom.getInstance().getFlagManager().dropFlag(player);
+
         Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
         team.getPlayers().remove(player);
 
@@ -628,7 +784,7 @@ public class IngameState extends GameState {
 
         @Override
         public void doEffect(List<LivingEntity> players) {
-            for(var player : players) {
+            for (var player : players) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 300, 4));
                 player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 300, 0));
             }
@@ -643,7 +799,7 @@ public class IngameState extends GameState {
 
         @Override
         public void doEffect(List<LivingEntity> players) {
-            for(var player : players) {
+            for (var player : players) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 2));
                 player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 300, 0));
             }
@@ -660,7 +816,7 @@ public class IngameState extends GameState {
         public void doEffect(List<LivingEntity> players) {
             location.getWorld().spawnEntity(location.clone().add(-0.5, 1, -0.5), EntityType.TNT);
 
-            for(var player : players) {
+            for (var player : players) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 300, 0));
             }
         }
@@ -683,7 +839,7 @@ public class IngameState extends GameState {
             main.getRelative(BlockFace.NORTH).setType(Material.COBWEB);
             main.getRelative(BlockFace.SOUTH).setType(Material.COBWEB);
 
-            for(var player : players) {
+            for (var player : players) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 300, 0));
             }
         }

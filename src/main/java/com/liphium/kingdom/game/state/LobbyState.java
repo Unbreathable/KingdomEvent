@@ -22,6 +22,7 @@ import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 
 import java.time.Duration;
+import java.util.Objects;
 
 public class LobbyState extends GameState {
 
@@ -80,7 +81,7 @@ public class LobbyState extends GameState {
                         if (count <= 5) {
                             if (count == 0) {
                                 for (Player player : Bukkit.getOnlinePlayers()) {
-                                    player.showTitle(Title.title(Component.text("Snowsplash", NamedTextColor.AQUA, TextDecoration.BOLD), Component.text("Winter Special", NamedTextColor.GRAY), Title.Times.times(Duration.ofSeconds(0), Duration.ofSeconds(3), Duration.ofSeconds(1))));
+                                    player.showTitle(Title.title(Component.text("Kingdom", NamedTextColor.AQUA, TextDecoration.BOLD), Component.text("Capture the Flag", NamedTextColor.GRAY), Title.Times.times(Duration.ofSeconds(0), Duration.ofSeconds(3), Duration.ofSeconds(1))));
                                     player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
                                 }
 
@@ -90,7 +91,7 @@ public class LobbyState extends GameState {
                             }
 
                             for (Player player : Bukkit.getOnlinePlayers()) {
-                                player.showTitle(Title.title(Component.text(count, NamedTextColor.AQUA, TextDecoration.BOLD).append(Component.text("..", NamedTextColor.GRAY)), Component.text("Snowsplash", NamedTextColor.GRAY), Title.Times.times(Duration.ofSeconds(0), Duration.ofSeconds(3), Duration.ofSeconds(1))));
+                                player.showTitle(Title.title(Component.text(count, NamedTextColor.AQUA, TextDecoration.BOLD).append(Component.text("..", NamedTextColor.GRAY)), Component.text("Kingdom", NamedTextColor.GRAY), Title.Times.times(Duration.ofSeconds(0), Duration.ofSeconds(3), Duration.ofSeconds(1))));
                                 player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1f, 1f);
                             }
                         } else if (count % 10 == 0 && count <= 100) {
@@ -136,7 +137,7 @@ public class LobbyState extends GameState {
 
         player.getInventory().setItem(4, new ItemStackBuilder(Material.SADDLE).withName(Component.text("Teams ", NamedTextColor.AQUA, TextDecoration.BOLD).append(Component.text("(Right-click)", NamedTextColor.GRAY))).withLore(Component.text("Join a team.", NamedTextColor.GRAY, TextDecoration.ITALIC)).buildStack());
 
-        player.teleport(LocationAPI.getLocation(LOBBY_LOCATION));
+        player.teleport(Objects.requireNonNull(LocationAPI.getLocation(LOBBY_LOCATION)));
 
         Kingdom.getInstance().getTaskManager().inject(new Runnable() {
             int ticks = 0;
@@ -144,7 +145,7 @@ public class LobbyState extends GameState {
             @Override
             public void run() {
                 if (ticks++ >= 10) {
-                    player.teleport(LocationAPI.getLocation(LOBBY_LOCATION));
+                    player.teleport(Objects.requireNonNull(LocationAPI.getLocation(LOBBY_LOCATION)));
                     Kingdom.getInstance().getTaskManager().uninject(this);
                 }
             }

@@ -3,6 +3,9 @@ version: '${version}'
 main: com.liphium.kingdom.Kingdom
 api-version: '26.2'
 
+depend:
+  - Multiverse-Core
+
 commands:
   set:
     description: "Set a location."
