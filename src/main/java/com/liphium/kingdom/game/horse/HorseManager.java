@@ -35,12 +35,11 @@ import java.util.UUID;
  */
 public class HorseManager implements Listener {
 
-    public static final int DEATH_COOLDOWN = 30;
-    public static final int CASTLE_COOLDOWN = 30;
+    public static final int DISMOUNT_COOLDOWN = 30;
     public static final double NORMAL_SPEED = 0.3375;
     public static final double CARRIER_SPEED = 0.2;
-    public static final double JUMP_STRENGTH = 1.0;
-    public static final double MAX_HEALTH = 30.0;
+    public static final double JUMP_STRENGTH = 0.75;
+    public static final double MAX_HEALTH = 10.0;
 
     public static final String OWNER_METADATA = "kingdom-horse-owner";
 
@@ -182,12 +181,10 @@ public class HorseManager implements Listener {
             if (horse.isValid()) {
                 horse.remove();
             }
-
-            // Apply the castle cooldown when the player dismounted inside a castle
-            if (CastleRegion.teamAt(player.getLocation()) != null) {
-                player.setCooldown(Material.GOAT_HORN, CASTLE_COOLDOWN * 20);
-            }
         }
+
+        // Apply the dismount cooldown when the player dismounted
+        player.setCooldown(Material.GOAT_HORN, DISMOUNT_COOLDOWN * 20);
     }
 
     @EventHandler
@@ -226,9 +223,9 @@ public class HorseManager implements Listener {
 
         // Apply the death cooldown to the owner
         horses.values().removeIf(h -> h == horse);
-        ownerPlayer.setCooldown(Material.GOAT_HORN, DEATH_COOLDOWN * 20);
+        ownerPlayer.setCooldown(Material.GOAT_HORN, DISMOUNT_COOLDOWN * 20);
         ownerPlayer.sendMessage(Kingdom.PREFIX.append(Component.text("Your horse has died! ", NamedTextColor.RED)
-                .append(Component.text(DEATH_COOLDOWN + "s", NamedTextColor.RED, TextDecoration.BOLD))
+                .append(Component.text(DISMOUNT_COOLDOWN + "s", NamedTextColor.RED, TextDecoration.BOLD))
                 .append(Component.text(" until you can whistle again.", NamedTextColor.RED))));
     }
 

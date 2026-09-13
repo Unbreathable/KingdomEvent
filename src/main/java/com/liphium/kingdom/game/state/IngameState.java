@@ -15,6 +15,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.title.Title;
 import org.bukkit.*;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.*;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -40,13 +41,13 @@ public class IngameState extends GameState {
 
     private Runnable runnable;
 
-    private static final int GAME_SECONDS = 15 * 60;
+    private static final int GAME_SECONDS = 20 * 60;
 
     // Respawn
     private static final int RESPAWN_SECONDS = 10;
 
     // Economy
-    private static final int KILL_REWARD = 5;
+    private static final int KILL_REWARD = 20;
     private static final Material CURRENCY = Material.GOLD_NUGGET;
 
     // Explosives
@@ -56,12 +57,12 @@ public class IngameState extends GameState {
     // Block regeneration
     private static final int WOOD_COBBLE_REGEN_SECONDS = 5;
     private static final Map<Material, Integer> ORE_REGEN_SECONDS = Map.ofEntries(
-            Map.entry(Material.COAL_ORE, 10), Map.entry(Material.DEEPSLATE_COAL_ORE, 10),
-            Map.entry(Material.COPPER_ORE, 10), Map.entry(Material.DEEPSLATE_COPPER_ORE, 10),
-            Map.entry(Material.IRON_ORE, 10), Map.entry(Material.DEEPSLATE_IRON_ORE, 10),
-            Map.entry(Material.GOLD_ORE, 10), Map.entry(Material.DEEPSLATE_GOLD_ORE, 10),
-            Map.entry(Material.DIAMOND_ORE, 20), Map.entry(Material.DEEPSLATE_DIAMOND_ORE, 20),
-            Map.entry(Material.EMERALD_ORE, 10), Map.entry(Material.DEEPSLATE_EMERALD_ORE, 10)
+            Map.entry(Material.COAL_ORE, 5), Map.entry(Material.DEEPSLATE_COAL_ORE, 5),
+            Map.entry(Material.COPPER_ORE, 5), Map.entry(Material.DEEPSLATE_COPPER_ORE, 5),
+            Map.entry(Material.IRON_ORE, 5), Map.entry(Material.DEEPSLATE_IRON_ORE, 5),
+            Map.entry(Material.GOLD_ORE, 5), Map.entry(Material.DEEPSLATE_GOLD_ORE, 5),
+            Map.entry(Material.DIAMOND_ORE, 10), Map.entry(Material.DEEPSLATE_DIAMOND_ORE, 10),
+            Map.entry(Material.EMERALD_ORE, 5), Map.entry(Material.DEEPSLATE_EMERALD_ORE, 5)
     );
 
     // Ore purchases (5 per team per type)
@@ -543,7 +544,7 @@ public class IngameState extends GameState {
         // Give the drop straight to the player's inventory (ores drop their direct material,
         // everything else the block itself); overflow drops on the ground
         Material drop = oreDrop(type);
-        var leftover = event.getPlayer().getInventory().addItem(new ItemStack(drop != null ? drop : type));
+        var leftover = event.getPlayer().getInventory().addItem(new ItemStack(drop != null ? drop : type, 5));
         for (ItemStack item : leftover.values()) {
             event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation().clone().add(0.5, 0.5, 0.5), item);
         }
@@ -569,8 +570,7 @@ public class IngameState extends GameState {
     private boolean isWoodOrCobble(Material material) {
         return material == Material.COBBLESTONE
                 || material.name().endsWith("_LOG")
-                || material.name().endsWith("_WOOD")
-                || material.name().endsWith("_PLANKS");
+                || material.name().endsWith("_WOOD");
     }
 
     private void processRegeneration() {
@@ -647,6 +647,7 @@ public class IngameState extends GameState {
         // Give the killer a coin reward
         if (player.getKiller() != null) {
             player.getKiller().getInventory().addItem(new ItemStack(CURRENCY, KILL_REWARD));
+            player.getKiller().setHealth(Objects.requireNonNull(player.getAttribute(Attribute.MAX_HEALTH)).getValue());
 
             Bukkit.broadcast(Kingdom.PREFIX.append(Component.text(player.getName(), NamedTextColor.AQUA)
                     .append(Component.text(" was killed by ", NamedTextColor.GRAY))
@@ -802,6 +803,10 @@ public class IngameState extends GameState {
             for (var player : players) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 2));
                 player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 300, 0));
+                if(player.getVehicle() != null && player.getVehicle() instanceof LivingEntity mount) {
+                    mount.addPotionEffect(new PotionEffect(PotionEffectType.POISON, 100, 2));
+                    mount.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 300, 0));
+                }
             }
         }
     }
@@ -814,7 +819,8 @@ public class IngameState extends GameState {
 
         @Override
         public void doEffect(List<LivingEntity> players) {
-            location.getWorld().spawnEntity(location.clone().add(-0.5, 1, -0.5), EntityType.TNT);
+            var tnt = (TNTPrimed) location.getWorld().spawnEntity(location.clone().add(-0.5, 1, -0.5), EntityType.TNT);
+            tnt.setFuseTicks(0);
 
             for (var player : players) {
                 player.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 300, 0));

@@ -46,7 +46,7 @@ public class ItemShopScreen extends CScreen {
         for (int i = 0; i < 9; i++) {
             if (category.getItems().size() <= i) {
                 setItemNotCached(event.player(), 18 + i, ShopCategory.spacer(), inventory);
-            } else if (category == ShopCategory.UPGRADES) {
+            } else if (category == ShopCategory.UPGRADES && i == 0) {
                 // Build upgrade items dynamically so the price reflects the team's current level
                 setItemNotCached(event.player(), 18 + i, coinDropperUpgradeItem(event.player()), inventory);
             } else {
@@ -100,7 +100,7 @@ public class ItemShopScreen extends CScreen {
 
     public static ItemStack tntBow() {
         ItemStack stack = new ItemStackBuilder(Material.BOW)
-                .withName(Component.text("TNT Bow", NamedTextColor.RED))
+                .withName(Component.text("TNT Bow", NamedTextColor.GOLD))
                 .withLore(Component.text("Shoots exploding arrows.", NamedTextColor.GRAY),
                         Component.text("5 uses only!", NamedTextColor.RED))
                 .buildStack();
@@ -118,98 +118,62 @@ public class ItemShopScreen extends CScreen {
     }
 
     public enum ShopCategory {
-        WEAPONS(
+        TOOLS(
                 new ItemStackBuilder(Material.IRON_SWORD)
-                        .withName(Component.text("Weapons", NamedTextColor.RED, TextDecoration.BOLD))
-                        .withLore(Component.text("Better melee weapons.", NamedTextColor.GRAY))
+                        .withName(Component.text("Tools", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD))
+                        .withLore(Component.text("Weapons & different tools.", NamedTextColor.GRAY))
                         .buildStack(),
                 List.of(
-                        itemWithPrice(Material.IRON_SWORD, "Iron sword", NamedTextColor.RED, 10, 1),
-                        spacer(),
-                        itemWithPrice(Material.IRON_AXE, "Iron axe", NamedTextColor.RED, 15, 1)
+                        itemWithPrice(Material.IRON_SWORD, "Iron sword", NamedTextColor.LIGHT_PURPLE, 10, 1),
+                        itemWithPrice(Material.IRON_AXE, "Iron axe", NamedTextColor.LIGHT_PURPLE, 15, 1),
+                        itemWithPrice(Material.IRON_PICKAXE, "Iron pickaxe", NamedTextColor.LIGHT_PURPLE, 10, 1),
+                        itemWithPrice(Material.IRON_SHOVEL, "Iron axe", NamedTextColor.LIGHT_PURPLE, 10, 1)
                 )
         ),
         RANGED(
                 new ItemStackBuilder(Material.BOW)
-                        .withName(Component.text("Ranged", NamedTextColor.RED, TextDecoration.BOLD))
+                        .withName(Component.text("Ranged", NamedTextColor.GOLD, TextDecoration.BOLD))
                         .withLore(Component.text("Bows & explosives.", NamedTextColor.GRAY))
                         .buildStack(),
                 List.of(
-                        itemWithPrice(Material.CROSSBOW, "Crossbow", NamedTextColor.RED, 15, 1),
+                        itemWithPrice(Material.CROSSBOW, "Crossbow", NamedTextColor.GOLD, 15, 1),
                         itemWithPriceCustom(
                                 new ItemStackBuilder(Material.BOW)
-                                        .withName(Component.text("Infinity bow", NamedTextColor.RED))
+                                        .withName(Component.text("Infinity bow", NamedTextColor.GOLD))
                                         .withEnchantments(Map.of(Enchantment.INFINITY, 1))
                                         .buildStack(),
                                 20
                         ),
                         itemWithPriceCustom(
                                 new ItemStackBuilder(Material.BOW)
-                                        .withName(Component.text("Power bow", NamedTextColor.RED))
+                                        .withName(Component.text("Power bow", NamedTextColor.GOLD))
                                         .withEnchantments(Map.of(Enchantment.POWER, 2))
                                         .buildStack(),
                                 25
                         ),
                         itemWithPriceCustom(tntBow(), 30),
                         spacer(),
-                        itemWithPrice(Material.ARROW, "Arrow", NamedTextColor.RED, 1, 4),
-                        itemWithPrice(Material.WIND_CHARGE, "Wind charge", NamedTextColor.RED, 2, 5)
+                        itemWithPrice(Material.ARROW, "Arrow", NamedTextColor.GOLD, 1, 4),
+                        itemWithPrice(Material.WIND_CHARGE, "Wind charge", NamedTextColor.GOLD, 2, 5)
                 )
         ),
-        TRAPS(
-                new ItemStackBuilder(Material.RED_DYE)
-                        .withName(Component.text("Traps", NamedTextColor.GOLD, TextDecoration.BOLD))
-                        .withLore(
-                                Component.text("Place on blocks to set a trap.", NamedTextColor.GRAY)
-                        )
-                        .buildStack(),
-                List.of(
-                        itemWithPrice(Material.GRAY_DYE, "Slowness trap", NamedTextColor.GOLD, 3, 1),
-                        itemWithPrice(Material.LIME_DYE, "Poison trap", NamedTextColor.GOLD, 4, 1),
-                        itemWithPrice(Material.GUNPOWDER, "Explosion trap", NamedTextColor.GOLD, 10, 1),
-                        itemWithPrice(Material.WHITE_DYE, "Web trap", NamedTextColor.GOLD, 5, 1)
-                )
-        ),
-        EXPLOSIVES(
+        UTILITY(
                 new ItemStackBuilder(Material.TNT)
-                        .withName(Component.text("Explosives", NamedTextColor.WHITE, TextDecoration.BOLD))
-                        .withLore(Component.text("Blow things up.", NamedTextColor.GRAY))
-                        .buildStack(),
-                List.of(
-                        itemWithPrice(Material.TNT, "TNT", NamedTextColor.WHITE, 8, 1),
-                        itemWithPrice(Material.FIRE_CHARGE, "Fire charge", NamedTextColor.WHITE, 12, 1)
-                )
-        ),
-        BLOCKS(
-                new ItemStackBuilder(Material.COBBLESTONE)
-                        .withName(Component.text("Blocks", NamedTextColor.WHITE, TextDecoration.BOLD))
-                        .withLore(Component.text("For building.", NamedTextColor.GRAY))
-                        .buildStack(),
-                List.of(
-                        itemWithPrice(Material.COBBLESTONE, "Cobblestone", NamedTextColor.WHITE, 4, 16),
-                        itemWithPrice(Material.OAK_PLANKS, "Oak planks", NamedTextColor.WHITE, 4, 16),
-                        itemWithPrice(Material.OAK_LOG, "Oak wood", NamedTextColor.WHITE, 6, 8)
-                )
-        ),
-        ORES(
-                new ItemStackBuilder(Material.IRON_ORE)
-                        .withName(Component.text("Ores", NamedTextColor.AQUA, TextDecoration.BOLD))
+                        .withName(Component.text("Utility", NamedTextColor.RED, TextDecoration.BOLD))
                         .withLore(
-                                Component.text("Adds an ore to your base.", NamedTextColor.GRAY),
-                                Component.text("Max 5 per team!", NamedTextColor.RED)
+                                Component.text("Different utility items & traps.", NamedTextColor.GRAY)
                         )
                         .buildStack(),
                 List.of(
-                        new CItem(new ItemStackBuilder(Material.IRON_ORE)
-                                .withName(Component.text("Iron ore", NamedTextColor.AQUA))
-                                .withLore(Component.text("Price: ", NamedTextColor.GRAY).append(Component.text(10, NamedTextColor.GOLD)),
-                                        Component.text("Gets placed at your base.", NamedTextColor.GRAY))
-                                .buildStack()).onClick(event -> buyOre(event, Material.IRON_ORE, 10)),
-                        new CItem(new ItemStackBuilder(Material.DIAMOND_ORE)
-                                .withName(Component.text("Diamond ore", NamedTextColor.AQUA))
-                                .withLore(Component.text("Price: ", NamedTextColor.GRAY).append(Component.text(30, NamedTextColor.GOLD)),
-                                        Component.text("Gets placed at your base.", NamedTextColor.GRAY))
-                                .buildStack()).onClick(event -> buyOre(event, Material.DIAMOND_ORE, 30))
+                        itemWithPrice(Material.TNT, "TNT", NamedTextColor.RED, 8, 1),
+                        itemWithPrice(Material.FIRE_CHARGE, "Fire charge", NamedTextColor.RED, 12, 1),
+                        spacer(),
+                        itemWithPrice(Material.GRAY_DYE, "Slowness trap", NamedTextColor.RED, 3, 1),
+                        itemWithPrice(Material.LIME_DYE, "Poison trap", NamedTextColor.RED, 4, 1),
+                        itemWithPrice(Material.GUNPOWDER, "Explosion trap", NamedTextColor.RED, 10, 1),
+                        itemWithPrice(Material.WHITE_DYE, "Web trap", NamedTextColor.RED, 5, 1),
+                        spacer(),
+                        itemWithPrice(Material.GOLDEN_APPLE, "Golden apple", NamedTextColor.RED, 10, 3)
                 )
         ),
         UPGRADES(
@@ -222,7 +186,18 @@ public class ItemShopScreen extends CScreen {
                                 .withName(Component.text("Coin dropper upgrade", NamedTextColor.GOLD))
                                 .withLore(Component.text("Makes your coin dropper faster.", NamedTextColor.GRAY),
                                         Component.text("Click to see the price.", NamedTextColor.GRAY))
-                                .buildStack()).onClick(ShopCategory::buyCoinDropperUpgrade)
+                                .buildStack()).onClick(ShopCategory::buyCoinDropperUpgrade),
+                        spacer(),
+                        new CItem(new ItemStackBuilder(Material.IRON_ORE)
+                                .withName(Component.text("Iron ore", NamedTextColor.AQUA))
+                                .withLore(Component.text("Price: ", NamedTextColor.GRAY).append(Component.text(10, NamedTextColor.GOLD)),
+                                        Component.text("Gets placed at your base.", NamedTextColor.GRAY))
+                                .buildStack()).onClick(event -> buyOre(event, Material.IRON_ORE, 10)),
+                        new CItem(new ItemStackBuilder(Material.DIAMOND_ORE)
+                                .withName(Component.text("Diamond ore", NamedTextColor.AQUA))
+                                .withLore(Component.text("Price: ", NamedTextColor.GRAY).append(Component.text(30, NamedTextColor.GOLD)),
+                                        Component.text("Gets placed at your base.", NamedTextColor.GRAY))
+                                .buildStack()).onClick(event -> buyOre(event, Material.DIAMOND_ORE, 30))
                 )
         );
 

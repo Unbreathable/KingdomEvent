@@ -93,7 +93,7 @@ public class MachineManager {
 
             return new ItemDropper(location, "Coin dropper", NamedTextColor.GOLD,
                     new ItemStack(Material.GOLD_NUGGET),
-                    () -> 30 - (team.getCoinDropperLevel() - 1) * 5);
+                    () -> 10 - (team.getCoinDropperLevel() - 1) * 2);
         }
 
         return switch (name) {
