@@ -18,10 +18,10 @@ public class ItemDropper extends Machine {
     private final UUID uniqueId;
     private final String name;
     private final NamedTextColor color;
-    private final ItemStack toDrop;
+    private final Supplier<ItemStack> toDrop;
     private final Supplier<Integer>  dropRate;
 
-    public ItemDropper(Location location, String name, NamedTextColor color, ItemStack toDrop, Supplier<Integer> ticks) {
+    public ItemDropper(Location location, String name, NamedTextColor color, Supplier<ItemStack> toDrop, Supplier<Integer> ticks) {
         super(location, true);
 
         this.name = name;
@@ -63,7 +63,7 @@ public class ItemDropper extends Machine {
             if (count == 0) {
                 count = dropRate.get();
 
-                Item item = location.getWorld().dropItem(location.clone().add(0.5, 1.5, 0.5), toDrop);
+                Item item = location.getWorld().dropItem(location.clone().add(0.5, 1.5, 0.5), toDrop.get());
                 item.setVelocity(new Vector());
             }
         }

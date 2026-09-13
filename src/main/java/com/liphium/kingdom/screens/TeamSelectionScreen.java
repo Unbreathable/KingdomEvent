@@ -31,10 +31,10 @@ public class TeamSelectionScreen extends CScreen {
 
     public void click(Team team, CClickEvent event) {
         if (team.getPlayers().contains(event.player())) {
-            team.getPlayers().remove(event.player());
+            team.removePlayer(event.player());
         } else {
             for (Team t : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
-                t.getPlayers().remove(event.player());
+                t.removePlayer(event.player());
             }
             team.addPlayer(event.player());
         }

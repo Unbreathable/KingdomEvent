@@ -28,7 +28,7 @@ import java.util.Map;
  */
 public class FlagManager implements Listener {
 
-    public static final int RETURN_SECONDS = 60;
+    public static final int RETURN_SECONDS = 10;
     public static final double PICKUP_RANGE = 0.5;
     public static final double CAPTURE_RANGE = 1.0;
 

@@ -128,6 +128,9 @@ public class LobbyState extends GameState {
     public void join(Player player) {
         player.setGameMode(GameMode.SURVIVAL);
         player.setHealth(20);
+        if(player.getScoreboard().getPlayerTeam(player) != null) {
+            Objects.requireNonNull(player.getScoreboard().getPlayerTeam(player)).removePlayer(player);
+        }
 
         player.getInventory().clear();
         player.getInventory().setHelmet(null);

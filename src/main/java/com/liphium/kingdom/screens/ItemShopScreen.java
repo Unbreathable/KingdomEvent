@@ -166,12 +166,12 @@ public class ItemShopScreen extends CScreen {
                         .buildStack(),
                 List.of(
                         itemWithPrice(Material.TNT, "TNT", NamedTextColor.RED, 8, 1),
-                        itemWithPrice(Material.FIRE_CHARGE, "Fire charge", NamedTextColor.RED, 12, 1),
+                        itemWithPrice(Material.FIRE_CHARGE, "Fire charge", NamedTextColor.RED, 16, 1),
                         spacer(),
-                        itemWithPrice(Material.GRAY_DYE, "Slowness trap", NamedTextColor.RED, 3, 1),
-                        itemWithPrice(Material.LIME_DYE, "Poison trap", NamedTextColor.RED, 4, 1),
-                        itemWithPrice(Material.GUNPOWDER, "Explosion trap", NamedTextColor.RED, 10, 1),
-                        itemWithPrice(Material.WHITE_DYE, "Web trap", NamedTextColor.RED, 5, 1),
+                        itemWithPrice(Material.GRAY_DYE, "Slowness trap", NamedTextColor.RED, 20, 1),
+                        itemWithPrice(Material.LIME_DYE, "Poison trap", NamedTextColor.RED, 20, 1),
+                        itemWithPrice(Material.WHITE_DYE, "Web trap", NamedTextColor.RED, 30, 1),
+                        itemWithPrice(Material.GUNPOWDER, "Explosion trap", NamedTextColor.RED, 40, 1),
                         spacer(),
                         itemWithPrice(Material.GOLDEN_APPLE, "Golden apple", NamedTextColor.RED, 10, 3)
                 )

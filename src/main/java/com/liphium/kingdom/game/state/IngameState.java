@@ -46,6 +46,9 @@ public class IngameState extends GameState {
     // Respawn
     private static final int RESPAWN_SECONDS = 10;
 
+    // Reconnection: a team is eliminated when ALL of its players are offline for this long
+    private static final int TEAM_OFFLINE_SECONDS = 30;
+
     // Economy
     private static final int KILL_REWARD = 20;
     private static final Material CURRENCY = Material.GOLD_NUGGET;
@@ -79,6 +82,8 @@ public class IngameState extends GameState {
     private final HashMap<Location, PendingRegen> regenerating = new HashMap<>();
     // Purchased ores per team
     private final HashMap<Team, HashMap<Material, Integer>> boughtOres = new HashMap<>();
+    // Reconnection: teams where every player is currently offline -> seconds since that started
+    private final HashMap<Team, Integer> offlineTeams = new HashMap<>();
 
     private static class PendingRegen {
         final Material material;
@@ -150,6 +155,7 @@ public class IngameState extends GameState {
 
                     processRegeneration();
                     Kingdom.getInstance().getFlagManager().tickPerSecond();
+                    checkOfflineTeams();
 
                     // The timer can be paused with /timer pause
                     if (!paused) count--;
@@ -229,6 +235,46 @@ public class IngameState extends GameState {
         Kingdom.getInstance().getFlagManager().stop();
         Kingdom.getInstance().getHorseManager().stop();
         Kingdom.getInstance().getGameManager().setCurrentState(new EndState());
+    }
+
+    /**
+     * Eliminates teams where every player has been offline for TEAM_OFFLINE_SECONDS.
+     * Players keep their team slot until then, so they can reconnect.
+     */
+    private void checkOfflineTeams() {
+        for (Team team : Kingdom.getInstance().getGameManager().getTeamManager().getTeams()) {
+            boolean allOffline = !team.getPlayers().isEmpty() && team.getPlayers().stream().noneMatch(Player::isOnline);
+
+            if (!allOffline) {
+                offlineTeams.remove(team);
+                continue;
+            }
+
+            int seconds = offlineTeams.getOrDefault(team, 0) + 1;
+
+            // Warn once when the grace period starts
+            if (seconds == 1) {
+                Bukkit.broadcast(Kingdom.PREFIX.append(Component.text("All ", NamedTextColor.GRAY))
+                        .append(Component.text(team.getName() + " players", team.getColor()))
+                        .append(Component.text(" disconnected! The team loses in ", NamedTextColor.GRAY))
+                        .append(Component.text(TEAM_OFFLINE_SECONDS + "s", team.getColor(), TextDecoration.BOLD))
+                        .append(Component.text(" if nobody reconnects.", NamedTextColor.GRAY)));
+            }
+
+            if (seconds >= TEAM_OFFLINE_SECONDS) {
+                offlineTeams.remove(team);
+                // Remove all players from the team (they are all offline anyway)
+                for (Player player : new ArrayList<>(team.getPlayers())) {
+                    team.removePlayer(player);
+                }
+
+                handleWin(Kingdom.getInstance().getGameManager().getTeamManager().getTeams().stream()
+                        .filter(team1 -> !team1.equals(team)).findFirst().get());
+                return;
+            }
+
+            offlineTeams.put(team, seconds);
+        }
     }
 
     @Override
@@ -326,7 +372,34 @@ public class IngameState extends GameState {
 
     @Override
     public void join(Player player) {
-        player.kick(Component.text("You can only join after the game has finished.", NamedTextColor.RED));
+        Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
+
+        // Players without a team can't join a running game
+        if (team == null) {
+            player.kick(Component.text("You can only join after the game has finished.", NamedTextColor.RED));
+            return;
+        }
+
+        // Reconnection: reset the player and send them back to their team's respawn point
+        player.setGameMode(GameMode.SURVIVAL);
+        player.getInventory().clear();
+        player.getInventory().setHelmet(null);
+        player.getInventory().setChestplate(null);
+        player.getInventory().setLeggings(null);
+        player.getInventory().setBoots(null);
+        player.setHealth(20);
+        player.setFoodLevel(20);
+        player.getActivePotionEffects().clear();
+
+        Location respawnLocation = LocationAPI.safe(team.getName() + "-Respawn");
+        if (respawnLocation == null) {
+            respawnLocation = LocationAPI.getLocation(team.getName());
+        }
+        player.teleport(Objects.requireNonNull(respawnLocation));
+
+        team.giveKit(player, false);
+
+        player.sendMessage(Kingdom.PREFIX.append(Component.text("Welcome back! You have been reconnected to the game.", NamedTextColor.GRAY)));
     }
 
     @Override
@@ -723,8 +796,20 @@ public class IngameState extends GameState {
                     player.getInventory().clear();
                     player.setHealth(20);
                     player.setFoodLevel(20);
-                    team.giveKit(player, true);
                     player.clearTitle();
+
+                    // Sometimes the kit is desynchronized, hoping this fixes it
+                    Kingdom.getInstance().getTaskManager().inject(new Runnable() {
+                        int tickCount = 0;
+
+                        @Override
+                        public void run() {
+                            if (tickCount++ >= 5) {
+                                team.giveKit(player, true);
+                                Kingdom.getInstance().getTaskManager().uninject(this);
+                            }
+                        }
+                    });
                 }
             }
         });
@@ -735,14 +820,7 @@ public class IngameState extends GameState {
         // Drop the flag when the carrier disconnects
         Kingdom.getInstance().getFlagManager().dropFlag(player);
 
-        Team team = Kingdom.getInstance().getGameManager().getTeamManager().getTeam(player);
-        team.getPlayers().remove(player);
-
-        // Make sure the team loses if there are no players left
-        if (team.getPlayers().isEmpty()) {
-            handleWin(Kingdom.getInstance().getGameManager().getTeamManager().getTeams().stream()
-                    .filter(team1 -> !team1.equals(team)).findFirst().get());
-        }
+        // The player keeps their team slot so they can reconnect later
     }
 
     public abstract static class DroppableTrap {

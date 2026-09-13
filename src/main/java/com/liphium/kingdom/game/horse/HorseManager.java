@@ -37,7 +37,6 @@ public class HorseManager implements Listener {
 
     public static final int DISMOUNT_COOLDOWN = 30;
     public static final double NORMAL_SPEED = 0.3375;
-    public static final double CARRIER_SPEED = 0.2;
     public static final double JUMP_STRENGTH = 0.75;
     public static final double MAX_HEALTH = 10.0;
 
@@ -46,7 +45,7 @@ public class HorseManager implements Listener {
     private final Map<Player, Horse> horses = new HashMap<>();
 
     public static ItemStack whistle() {
-        return new ItemStackBuilder(Material.GOAT_HORN)
+        return new ItemStackBuilder(Material.SADDLE)
                 .withName(Component.text("Whistle", NamedTextColor.AQUA))
                 .withLore(Component.text("Right click to summon your horse.", NamedTextColor.GRAY))
                 .buildStack();
@@ -60,6 +59,12 @@ public class HorseManager implements Listener {
             return;
         }
 
+        // Flag carriers can't summon their horse
+        if (Kingdom.getInstance().getFlagManager().isCarrying(player)) {
+            player.sendMessage(Kingdom.PREFIX.append(Component.text("You can't summon your horse while carrying a flag.", NamedTextColor.RED)));
+            return;
+        }
+
         // No horses inside castles
         if (CastleRegion.teamAt(player.getLocation()) != null) {
             player.sendMessage(Kingdom.PREFIX.append(Component.text("You can't summon your horse inside a castle.", NamedTextColor.RED)));
@@ -67,21 +72,20 @@ public class HorseManager implements Listener {
         }
 
         // Fix cooldown on goat horn
-        if(player.getCooldown(Material.GOAT_HORN) > 0) {
+        if(player.getCooldown(Material.SADDLE) > 0) {
             player.sendMessage(Kingdom.PREFIX.append(Component.text("You can't summon your horse yet.", NamedTextColor.RED)));
             return;
         }
-        player.setCooldown(Material.GOAT_HORN, 0);
+        player.setCooldown(Material.SADDLE, 0);
 
         // Only one horse per player
         removeHorse(player);
 
-        double speed = Kingdom.getInstance().getFlagManager().isCarrying(player) ? CARRIER_SPEED : NORMAL_SPEED;
         Horse horse = player.getWorld().spawn(player.getLocation(), Horse.class, h -> {
             h.setTamed(true);
             h.setOwner(player);
             h.getInventory().setSaddle(new ItemStack(Material.SADDLE));
-            h.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(speed);
+            h.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(NORMAL_SPEED);
             h.getAttribute(Attribute.MAX_HEALTH).setBaseValue(MAX_HEALTH);
             h.setHealth(MAX_HEALTH);
             h.setJumpStrength(JUMP_STRENGTH);
@@ -117,7 +121,7 @@ public class HorseManager implements Listener {
 
     @EventHandler
     public void onWhistleInteract(PlayerInteractEvent event) {
-        if (event.getItem() == null || event.getItem().getType() != Material.GOAT_HORN) {
+        if (event.getItem() == null || event.getItem().getType() != Material.SADDLE) {
             return;
         }
 
@@ -149,9 +153,15 @@ public class HorseManager implements Listener {
             return;
         }
 
+        // Flag carriers can't ride horses
+        if (Kingdom.getInstance().getFlagManager().isCarrying(player)) {
+            event.setCancelled(true);
+            return;
+        }
+
         // A flag carrier's horse is slower
         if (Kingdom.getInstance().getFlagManager().isCarrying(player)) {
-            horse.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(CARRIER_SPEED);
+            horse.getAttribute(Attribute.MOVEMENT_SPEED).setBaseValue(NORMAL_SPEED);
         }
 
         // Swap all swords in the hotbar for spears
@@ -184,11 +194,25 @@ public class HorseManager implements Listener {
         }
 
         // Apply the dismount cooldown when the player dismounted
-        player.setCooldown(Material.GOAT_HORN, DISMOUNT_COOLDOWN * 20);
+        player.setCooldown(Material.SADDLE, DISMOUNT_COOLDOWN * 20);
     }
 
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
+        // Flag carriers can't have horses: dismount and despawn when they
+        // pick up a flag while already riding
+        Player player = event.getPlayer();
+        if (player.isInsideVehicle() && player.getVehicle() instanceof Horse horse
+                && Kingdom.getInstance().getFlagManager().isCarrying(player)) {
+            horses.remove(player);
+            player.leaveVehicle();
+            if (horse.isValid()) {
+                horse.remove();
+            }
+            player.sendMessage(Kingdom.PREFIX.append(Component.text("Flag carriers can't ride horses.", NamedTextColor.RED)));
+            return;
+        }
+
         if (event.getFrom().getBlockX() == event.getTo().getBlockX()
                 && event.getFrom().getBlockY() == event.getTo().getBlockY()
                 && event.getFrom().getBlockZ() == event.getTo().getBlockZ()) {
@@ -223,7 +247,7 @@ public class HorseManager implements Listener {
 
         // Apply the death cooldown to the owner
         horses.values().removeIf(h -> h == horse);
-        ownerPlayer.setCooldown(Material.GOAT_HORN, DISMOUNT_COOLDOWN * 20);
+        ownerPlayer.setCooldown(Material.SADDLE, DISMOUNT_COOLDOWN * 20);
         ownerPlayer.sendMessage(Kingdom.PREFIX.append(Component.text("Your horse has died! ", NamedTextColor.RED)
                 .append(Component.text(DISMOUNT_COOLDOWN + "s", NamedTextColor.RED, TextDecoration.BOLD))
                 .append(Component.text(" until you can whistle again.", NamedTextColor.RED))));

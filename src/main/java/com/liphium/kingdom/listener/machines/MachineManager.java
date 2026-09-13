@@ -92,7 +92,7 @@ public class MachineManager {
             if(team == null) return null;
 
             return new ItemDropper(location, "Coin dropper", NamedTextColor.GOLD,
-                    new ItemStack(Material.GOLD_NUGGET),
+                    () -> new ItemStack(Material.GOLD_NUGGET, Kingdom.getInstance().getGameManager().getTeamManager().getTeamWithLeastPlayers().getPlayers().size()),
                     () -> 10 - (team.getCoinDropperLevel() - 1) * 2);
         }
 
